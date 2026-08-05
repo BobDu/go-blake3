@@ -45,9 +45,9 @@ type vec = archsimd.Uint32x8
 // memory so that the rounds can use it as a memory operand.
 type words = [8]uint32
 
+// splat is a local shorthand for archsimd.BroadcastUint32x8, purely so that
+// lines initialising four state words at once stay readable.
 func splat(x uint32) vec { return archsimd.BroadcastUint32x8(x) }
-
-func load(p unsafe.Pointer) vec { return archsimd.LoadUint32x8Array((*words)(p)) }
 
 // g is the BLAKE3 quarter-round pair applied to eight independent states.
 func g(a, b, c, d vec, mx, my *words) (vec, vec, vec, vec) {
@@ -173,13 +173,17 @@ func transpose8(v0, v1, v2, v3, v4, v5, v6, v7 vec) (vec, vec, vec, vec, vec, ve
 // result in m so the rounds can use it as memory operands.
 func loadBlock(input *[8192]byte, n int, m *[16]words) {
 	const cl, bl = consts.ChunkLen, consts.BlockLen
-	p := func(chunk, half int) unsafe.Pointer {
-		return unsafe.Pointer(&input[chunk*cl+n*bl+half*32])
+	// at returns block n of the given chunk as a word array, so that it can be
+	// loaded without a cast at each of the sixteen call sites below.
+	at := func(chunk, half int) *words {
+		return (*words)(unsafe.Pointer(&input[chunk*cl+n*bl+half*32]))
 	}
 	for half := 0; half < 2; half++ {
 		t0, t1, t2, t3, t4, t5, t6, t7 := transpose8(
-			load(p(0, half)), load(p(1, half)), load(p(2, half)), load(p(3, half)),
-			load(p(4, half)), load(p(5, half)), load(p(6, half)), load(p(7, half)))
+			archsimd.LoadUint32x8Array(at(0, half)), archsimd.LoadUint32x8Array(at(1, half)),
+			archsimd.LoadUint32x8Array(at(2, half)), archsimd.LoadUint32x8Array(at(3, half)),
+			archsimd.LoadUint32x8Array(at(4, half)), archsimd.LoadUint32x8Array(at(5, half)),
+			archsimd.LoadUint32x8Array(at(6, half)), archsimd.LoadUint32x8Array(at(7, half)))
 		t0.StoreArray(&m[half*8+0])
 		t1.StoreArray(&m[half*8+1])
 		t2.StoreArray(&m[half*8+2])
