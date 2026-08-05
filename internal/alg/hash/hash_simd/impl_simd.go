@@ -26,10 +26,11 @@
 //     of use lets the compiler fold the load into the operand, which is what the
 //     avo generator arranges by hand.
 //
-//   - splat uses archsimd.BroadcastUint32x8 rather than filling an array and
-//     loading it back. compress needs four broadcasts per block, and the
-//     array version cost a 32-byte store followed by a dependent load each
-//     time: 4.8x on HashF_8K, for a 4% change in instruction count.
+//   - Scalars reach the lanes through archsimd.BroadcastUint32x8, not by
+//     filling an eight-word array and loading it back. compress needs four
+//     broadcasts per block, and the array version cost a 32-byte store
+//     followed by a dependent load each time: 4.8x on HashF_8K, for a 4%
+//     change in instruction count.
 package hash_simd
 
 import (
@@ -44,10 +45,6 @@ type vec = archsimd.Uint32x8
 // words is one message word broadcast across the eight lanes. It is kept in
 // memory so that the rounds can use it as a memory operand.
 type words = [8]uint32
-
-// splat is a local shorthand for archsimd.BroadcastUint32x8, purely so that
-// lines initialising four state words at once stay readable.
-func splat(x uint32) vec { return archsimd.BroadcastUint32x8(x) }
 
 // g is the BLAKE3 quarter-round pair applied to eight independent states.
 func g(a, b, c, d vec, mx, my *words) (vec, vec, vec, vec) {
@@ -71,7 +68,10 @@ func compress(
 ) (vec, vec, vec, vec, vec, vec, vec, vec) {
 	s0, s1, s2, s3 := h0, h1, h2, h3
 	s4, s5, s6, s7 := h4, h5, h6, h7
-	s8, s9, sa, sb := splat(consts.IV0), splat(consts.IV1), splat(consts.IV2), splat(consts.IV3)
+	s8 := archsimd.BroadcastUint32x8(consts.IV0)
+	s9 := archsimd.BroadcastUint32x8(consts.IV1)
+	sa := archsimd.BroadcastUint32x8(consts.IV2)
+	sb := archsimd.BroadcastUint32x8(consts.IV3)
 	sc, sd, se, sf := ctrLo, ctrHi, blockLen, flags
 
 	// round 1
@@ -211,8 +211,14 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 		return
 	}
 
-	h0, h1, h2, h3 := splat(key[0]), splat(key[1]), splat(key[2]), splat(key[3])
-	h4, h5, h6, h7 := splat(key[4]), splat(key[5]), splat(key[6]), splat(key[7])
+	h0 := archsimd.BroadcastUint32x8(key[0])
+	h1 := archsimd.BroadcastUint32x8(key[1])
+	h2 := archsimd.BroadcastUint32x8(key[2])
+	h3 := archsimd.BroadcastUint32x8(key[3])
+	h4 := archsimd.BroadcastUint32x8(key[4])
+	h5 := archsimd.BroadcastUint32x8(key[5])
+	h6 := archsimd.BroadcastUint32x8(key[6])
+	h7 := archsimd.BroadcastUint32x8(key[7])
 
 	var lo, hi [8]uint32
 	for i := range &lo {
@@ -221,7 +227,7 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 	}
 	ctrLo := archsimd.LoadUint32x8Array(&lo)
 	ctrHi := archsimd.LoadUint32x8Array(&hi)
-	blockLen := splat(consts.BlockLen)
+	blockLen := archsimd.BroadcastUint32x8(consts.BlockLen)
 
 	// The chunk and block that the input ends in. chain is the chaining value
 	// as it stands just before that block is compressed.
@@ -250,15 +256,21 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 		loadBlock(input, n, &m)
 		h0, h1, h2, h3, h4, h5, h6, h7 = compress(
 			h0, h1, h2, h3, h4, h5, h6, h7, &m,
-			ctrLo, ctrHi, blockLen, splat(bflags))
+			ctrLo, ctrHi, blockLen, archsimd.BroadcastUint32x8(bflags))
 	}
 
 	store(h0, h1, h2, h3, h4, h5, h6, h7, out)
 }
 
 func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint32, n int) {
-	h0, h1, h2, h3 := splat(key[0]), splat(key[1]), splat(key[2]), splat(key[3])
-	h4, h5, h6, h7 := splat(key[4]), splat(key[5]), splat(key[6]), splat(key[7])
+	h0 := archsimd.BroadcastUint32x8(key[0])
+	h1 := archsimd.BroadcastUint32x8(key[1])
+	h2 := archsimd.BroadcastUint32x8(key[2])
+	h3 := archsimd.BroadcastUint32x8(key[3])
+	h4 := archsimd.BroadcastUint32x8(key[4])
+	h5 := archsimd.BroadcastUint32x8(key[5])
+	h6 := archsimd.BroadcastUint32x8(key[6])
+	h7 := archsimd.BroadcastUint32x8(key[7])
 
 	// left and right are already lane-major and adjacent in meaning, so the
 	// message block is the two of them read in place: no copy is needed, and
@@ -273,10 +285,10 @@ func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint3
 		archsimd.LoadUint32x8Array(&rm[i]).StoreArray(&m[i+8])
 	}
 
-	zero := splat(0)
+	zero := archsimd.BroadcastUint32x8(0)
 	h0, h1, h2, h3, h4, h5, h6, h7 = compress(
 		h0, h1, h2, h3, h4, h5, h6, h7, &m,
-		zero, zero, splat(consts.BlockLen), splat(flags))
+		zero, zero, archsimd.BroadcastUint32x8(consts.BlockLen), archsimd.BroadcastUint32x8(flags))
 
 	store(h0, h1, h2, h3, h4, h5, h6, h7, out)
 }
