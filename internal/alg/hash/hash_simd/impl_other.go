@@ -4,8 +4,7 @@ package hash_simd
 
 import "github.com/zeebo/blake3/internal/alg/hash/hash_pure"
 
-// Enabled is false when the simd/archsimd implementation is not compiled in.
-// Enabled is retained for callers that probed it.
+// Enabled reports whether the simd/archsimd implementation is compiled in.
 const Enabled = false
 
 func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint32, out *[64]uint32, chain *[8]uint32) {

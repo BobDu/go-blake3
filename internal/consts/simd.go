@@ -9,9 +9,11 @@ import (
 
 // HasSIMD reports whether the simd/archsimd implementation is usable.
 //
-// It needs AVX-512 rather than merely AVX2: RotateAllRight on a 256-bit vector
-// lowers to AVX-512VL's VPRORD. It is only compiled in at all when building
-// with GOEXPERIMENT=simd.
-var HasSIMD = archsimd.X86.AVX512() &&
+// AVX2 is enough. The vector width used is 256 bits and, as of Go 1.27,
+// RotateAllRight on a 256-bit vector lowers to a shift pair rather than
+// AVX-512VL's VPRORD, so nothing in the generated code needs EVEX encoding.
+//
+// This file only exists when building with GOEXPERIMENT=simd.
+var HasSIMD = archsimd.X86.AVX2() &&
 	os.Getenv("BLAKE3_DISABLE_SIMD") == "" &&
 	os.Getenv("BLAKE3_PUREGO") == ""

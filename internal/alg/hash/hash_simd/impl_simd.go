@@ -6,13 +6,30 @@
 // It is a drop-in replacement for hash_avx2, which is 61 KB of avo-generated
 // assembly produced by a 4.5 KB generator.
 //
-// Style note: the rounds are written out flat with one variable per state and
-// message word, rather than as loops over arrays. That is not a stylistic
-// choice. archsimd's documentation says not to "put [a vector] in an aggregate
-// type", and an earlier version of this file that used [16]Uint32x8 arrays ran
-// 9x slower: the array forced every state word through memory, the message
-// schedule became a bounds-checked runtime lookup, and the round function grew
-// past the inliner's budget.
+// Only AVX2 is needed. The generated code contains no EVEX-encoded instruction,
+// no zmm register and no mask register: as of Go 1.27, RotateAllRight on a
+// 256-bit vector lowers to a shift pair rather than AVX-512VL's VPRORD.
+//
+// Three things about the style here are deliberate, and each was arrived at by
+// reading the generated code rather than by taste:
+//
+//   - The rounds are written out flat, one variable per state word, rather than
+//     as loops over arrays. archsimd's documentation says not to "put [a vector]
+//     in an aggregate type"; a version using [16]Uint32x8 ran 9x slower, because
+//     the array forced every state word through memory, the message schedule
+//     became a bounds-checked runtime lookup, and the round function grew past
+//     the inliner's budget.
+//
+//   - The message words stay in memory and reach g as pointers. AVX2 has 16
+//     vector registers but a round needs 16 state plus 16 message words live at
+//     once, so holding messages in registers forces spills. Loading at the point
+//     of use lets the compiler fold the load into the operand, which is what the
+//     avo generator arranges by hand.
+//
+//   - splat uses archsimd.BroadcastUint32x8 rather than filling an array and
+//     loading it back. compress needs four broadcasts per block, and the
+//     array version cost a 32-byte store followed by a dependent load each
+//     time: 4.8x on HashF_8K, for a 4% change in instruction count.
 package hash_simd
 
 import (
