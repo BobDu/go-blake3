@@ -10,7 +10,7 @@
 // no zmm register and no mask register: as of Go 1.27, RotateAllRight on a
 // 256-bit vector lowers to a shift pair rather than AVX-512VL's VPRORD.
 //
-// Three things about the style here are deliberate, and each was arrived at by
+// Four things about the style here are deliberate, and each was arrived at by
 // reading the generated code rather than by taste:
 //
 //   - The rounds are written out flat, one variable per state word, rather than
@@ -31,6 +31,9 @@
 //     broadcasts per block, and the array version cost a 32-byte store
 //     followed by a dependent load each time: 4.8x on HashF_8K, for a 4%
 //     change in instruction count.
+//
+//   - The two byte-aligned rotations go through a byte shuffle instead of
+//     RotateAllRight, which costs three instructions per rotation. See rotr16.
 package hash_simd
 
 import (
@@ -46,14 +49,42 @@ type vec = archsimd.Uint32x8
 // memory so that the rounds can use it as a memory operand.
 type words = [8]uint32
 
+// Two of BLAKE3's four rotations are by whole bytes, so they are permutations
+// of the bytes within each 32-bit word and lower to a single shuffle instead of
+// RotateAllRight's shift-shift-or. A little-endian word holds its bytes in the
+// order [b0(LSB), b1, b2, b3(MSB)], so rotating right by 16 selects
+// [b2, b3, b0, b1] and by 8 selects [b1, b2, b3, b0]. The tables are int8
+// because the shuffle treats a negative index as "write zero"; every index here
+// is in range, so nothing is zeroed.
+var (
+	rotr16Bytes = [32]int8{
+		2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13,
+		2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13,
+	}
+	rotr8Bytes = [32]int8{
+		1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12,
+		1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12,
+	}
+)
+
+func rotr16(x vec) vec {
+	i := archsimd.LoadInt8x32Array(&rotr16Bytes)
+	return x.AsUint8x32().PermuteOrZeroGrouped(i).AsUint32x8()
+}
+
+func rotr8(x vec) vec {
+	i := archsimd.LoadInt8x32Array(&rotr8Bytes)
+	return x.AsUint8x32().PermuteOrZeroGrouped(i).AsUint32x8()
+}
+
 // g is the BLAKE3 quarter-round pair applied to eight independent states.
 func g(a, b, c, d vec, mx, my *words) (vec, vec, vec, vec) {
 	a = a.Add(b).Add(archsimd.LoadUint32x8Array(mx))
-	d = d.Xor(a).RotateAllRight(16)
+	d = rotr16(d.Xor(a))
 	c = c.Add(d)
 	b = b.Xor(c).RotateAllRight(12)
 	a = a.Add(b).Add(archsimd.LoadUint32x8Array(my))
-	d = d.Xor(a).RotateAllRight(8)
+	d = rotr8(d.Xor(a))
 	c = c.Add(d)
 	b = b.Xor(c).RotateAllRight(7)
 	return a, b, c, d
