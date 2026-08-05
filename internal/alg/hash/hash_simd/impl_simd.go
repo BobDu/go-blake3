@@ -7,8 +7,9 @@
 // assembly produced by a 4.5 KB generator.
 //
 // Only AVX2 is needed. The generated code contains no EVEX-encoded instruction,
-// no zmm register and no mask register: as of Go 1.27, RotateAllRight on a
-// 256-bit vector lowers to a shift pair rather than AVX-512VL's VPRORD.
+// no zmm register and no mask register. In particular RotateAllRight does not
+// reach AVX-512VL's VPRORD: as of Go 1.27 it has no amd64 intrinsic at any
+// width, and archsimd implements it in Go as a shift pair and an or.
 //
 // Four things about the style here are deliberate, and each was arrived at by
 // reading the generated code rather than by taste:
