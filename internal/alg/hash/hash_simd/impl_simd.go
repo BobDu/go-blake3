@@ -70,12 +70,12 @@ var (
 
 func rotr16(x vec) vec {
 	i := archsimd.LoadInt8x32Array(&rotr16Bytes)
-	return x.AsUint8x32().PermuteOrZeroGrouped(i).AsUint32x8()
+	return x.ReshapeToUint8s().PermuteOrZeroGrouped(i).ReshapeToUint32s()
 }
 
 func rotr8(x vec) vec {
 	i := archsimd.LoadInt8x32Array(&rotr8Bytes)
-	return x.AsUint8x32().PermuteOrZeroGrouped(i).AsUint32x8()
+	return x.ReshapeToUint8s().PermuteOrZeroGrouped(i).ReshapeToUint32s()
 }
 
 // g is the BLAKE3 quarter-round pair applied to eight independent states.
@@ -187,15 +187,15 @@ func transpose8(v0, v1, v2, v3, v4, v5, v6, v7 vec) (vec, vec, vec, vec, vec, ve
 	a4, a5 := v4.InterleaveLoGrouped(v5), v4.InterleaveHiGrouped(v5)
 	a6, a7 := v6.InterleaveLoGrouped(v7), v6.InterleaveHiGrouped(v7)
 
-	q0, q2 := a0.AsUint64x4(), a2.AsUint64x4()
-	q1, q3 := a1.AsUint64x4(), a3.AsUint64x4()
-	q4, q6 := a4.AsUint64x4(), a6.AsUint64x4()
-	q5, q7 := a5.AsUint64x4(), a7.AsUint64x4()
+	q0, q2 := a0.ReshapeToUint64s(), a2.ReshapeToUint64s()
+	q1, q3 := a1.ReshapeToUint64s(), a3.ReshapeToUint64s()
+	q4, q6 := a4.ReshapeToUint64s(), a6.ReshapeToUint64s()
+	q5, q7 := a5.ReshapeToUint64s(), a7.ReshapeToUint64s()
 
-	b0, b1 := q0.InterleaveLoGrouped(q2).AsUint32x8(), q0.InterleaveHiGrouped(q2).AsUint32x8()
-	b2, b3 := q1.InterleaveLoGrouped(q3).AsUint32x8(), q1.InterleaveHiGrouped(q3).AsUint32x8()
-	b4, b5 := q4.InterleaveLoGrouped(q6).AsUint32x8(), q4.InterleaveHiGrouped(q6).AsUint32x8()
-	b6, b7 := q5.InterleaveLoGrouped(q7).AsUint32x8(), q5.InterleaveHiGrouped(q7).AsUint32x8()
+	b0, b1 := q0.InterleaveLoGrouped(q2).ReshapeToUint32s(), q0.InterleaveHiGrouped(q2).ReshapeToUint32s()
+	b2, b3 := q1.InterleaveLoGrouped(q3).ReshapeToUint32s(), q1.InterleaveHiGrouped(q3).ReshapeToUint32s()
+	b4, b5 := q4.InterleaveLoGrouped(q6).ReshapeToUint32s(), q4.InterleaveHiGrouped(q6).ReshapeToUint32s()
+	b6, b7 := q5.InterleaveLoGrouped(q7).ReshapeToUint32s(), q5.InterleaveHiGrouped(q7).ReshapeToUint32s()
 
 	return b0.SetHi(b4.GetLo()), b1.SetHi(b5.GetLo()), b2.SetHi(b6.GetLo()), b3.SetHi(b7.GetLo()),
 		b4.SetLo(b0.GetHi()), b5.SetLo(b1.GetHi()), b6.SetLo(b2.GetHi()), b7.SetLo(b3.GetHi())
