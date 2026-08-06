@@ -1,9 +1,9 @@
 package blake3
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
-	"unsafe"
 
 	"github.com/zeebo/blake3/internal/alg"
 	"github.com/zeebo/blake3/internal/consts"
@@ -36,11 +36,7 @@ func (d *Digest) Read(p []byte) (n int, err error) {
 	for len(p) >= 64 {
 		d.fillBuf()
 
-		if consts.OptimizeLittleEndian {
-			*(*[64]byte)(unsafe.Pointer(&p[0])) = *(*[64]byte)(unsafe.Pointer(&d.buf[0]))
-		} else {
-			utils.WordsToBytes(&d.buf, p)
-		}
+		utils.WordsToBytes(&d.buf, p)
 
 		p = p[64:]
 		d.bufn = 0
@@ -83,14 +79,17 @@ func (d *Digest) setPosition(pos uint64) {
 
 func (d *Digest) slowCopy(p []byte) (n int) {
 	off := uint(consts.BlockLen-d.bufn) % consts.BlockLen
-	if consts.OptimizeLittleEndian {
-		n = copy(p, (*[consts.BlockLen]byte)(unsafe.Pointer(&d.buf[0]))[off:])
-	} else {
-		var tmp [consts.BlockLen]byte
-		utils.WordsToBytes(&d.buf, tmp[:])
-		n = copy(p, tmp[off:])
+	end := off + uint(len(p))
+	if end > consts.BlockLen {
+		end = consts.BlockLen
 	}
-	return n
+	// Convert only the words the read touches. Converting the whole buffer
+	// made one-byte reads pay for sixty-four.
+	var tmp [consts.BlockLen]byte
+	for w := off / 4; w < (end+3)/4; w++ {
+		binary.LittleEndian.PutUint32(tmp[4*w:4*w+4], d.buf[w])
+	}
+	return copy(p, tmp[off:end])
 }
 
 func (d *Digest) fillBuf() {

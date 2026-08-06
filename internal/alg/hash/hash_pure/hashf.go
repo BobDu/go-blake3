@@ -28,6 +28,9 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 				*chain = bchain
 			}
 
+			// This is the one place the little-endian view measurably pays:
+			// the portable conversion costs 2-8% here, against a pure-Go
+			// compression. Everywhere else the gate bought nothing and is gone.
 			var blockPtr *[16]uint32
 			if consts.OptimizeLittleEndian {
 				blockPtr = (*[16]uint32)(unsafe.Pointer(&input[consts.ChunkLen*i+consts.BlockLen*n]))

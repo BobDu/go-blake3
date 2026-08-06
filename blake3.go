@@ -103,13 +103,9 @@ func (a *hasher) finalizeDigest(d *Digest) {
 		base -= 64
 	}
 
-	if consts.OptimizeLittleEndian {
-		copy((*[64]byte)(unsafe.Pointer(&d.block[0]))[:], a.buf[base:a.len])
-	} else {
-		var tmp [64]byte
-		copy(tmp[:], a.buf[base:a.len])
-		utils.BytesToWords(&tmp, &d.block)
-	}
+	var tail [64]byte
+	copy(tail[:], a.buf[base:a.len])
+	utils.BytesToWords(&tail, &d.block)
 
 	for a.stack.bufn > 0 {
 		a.stack.flush(a.flags, &a.key)
@@ -247,15 +243,9 @@ func compressAll(d *Digest, in []byte, flags uint32, key [8]uint32) {
 	for len(in) > 64 {
 		buf := (*[64]byte)(in)
 
-		var block *[16]uint32
-		if consts.OptimizeLittleEndian {
-			block = (*[16]uint32)(unsafe.Pointer(buf))
-		} else {
-			block = &d.block
-			utils.BytesToWords(buf, block)
-		}
+		utils.BytesToWords(buf, &d.block)
 
-		alg.Compress(&d.chain, block, 0, consts.BlockLen, d.flags, &compressed)
+		alg.Compress(&d.chain, &d.block, 0, consts.BlockLen, d.flags, &compressed)
 
 		d.chain = *(*[8]uint32)(compressed[0:8])
 		d.flags &^= consts.Flag_ChunkStart
@@ -263,13 +253,9 @@ func compressAll(d *Digest, in []byte, flags uint32, key [8]uint32) {
 		in = in[64:]
 	}
 
-	if consts.OptimizeLittleEndian {
-		copy((*[64]byte)(unsafe.Pointer(&d.block[0]))[:], in)
-	} else {
-		var tmp [64]byte
-		copy(tmp[:], in)
-		utils.BytesToWords(&tmp, &d.block)
-	}
+	var tail [64]byte
+	copy(tail[:], in)
+	utils.BytesToWords(&tail, &d.block)
 
 	d.blen = uint32(len(in))
 	d.flags |= consts.Flag_ChunkEnd | consts.Flag_Root
