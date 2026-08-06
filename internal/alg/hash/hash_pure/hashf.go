@@ -1,16 +1,13 @@
 package hash_pure
 
 import (
-	"unsafe"
-
 	"github.com/zeebo/blake3/internal/alg/compress"
 	"github.com/zeebo/blake3/internal/consts"
 	"github.com/zeebo/blake3/internal/utils"
 )
 
 func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint32, out *[64]uint32, chain *[8]uint32) {
-	var tmp [16]uint32
-	var block [16]uint32
+	var tmp [64]byte
 
 	for i := uint64(0); consts.ChunkLen*i < length && i < 8; i++ {
 		bchain := *key
@@ -28,17 +25,11 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 				*chain = bchain
 			}
 
-			var blockPtr *[16]uint32
-			if consts.OptimizeLittleEndian {
-				blockPtr = (*[16]uint32)(unsafe.Pointer(&input[consts.ChunkLen*i+consts.BlockLen*n]))
-			} else {
-				utils.BytesToWords((*[64]uint8)(input[consts.ChunkLen*i+consts.BlockLen*n:]), &block)
-				blockPtr = &block
-			}
+			block := (*[64]byte)(input[consts.ChunkLen*i+consts.BlockLen*n:])
 
-			compress.Compress(&bchain, blockPtr, counter, consts.BlockLen, bflags, &tmp)
+			compress.Compress(&bchain, block, counter, consts.BlockLen, bflags, &tmp)
 
-			bchain = *(*[8]uint32)(tmp[0:8])
+			bchain = utils.ChainFromBytes(&tmp)
 			bflags = flags
 		}
 

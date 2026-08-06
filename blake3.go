@@ -103,26 +103,20 @@ func (a *hasher) finalizeDigest(d *Digest) {
 		base -= 64
 	}
 
-	if consts.OptimizeLittleEndian {
-		copy((*[64]byte)(unsafe.Pointer(&d.block[0]))[:], a.buf[base:a.len])
-	} else {
-		var tmp [64]byte
-		copy(tmp[:], a.buf[base:a.len])
-		utils.BytesToWords(&tmp, &d.block)
-	}
+	copy(d.block[:], a.buf[base:a.len])
 
 	for a.stack.bufn > 0 {
 		a.stack.flush(a.flags, &a.key)
 	}
 
-	var tmp [16]uint32
+	var tmp [64]byte
 	for occ := a.stack.occ; occ != 0; occ &= occ - 1 {
 		col := uint(bits.TrailingZeros64(occ)) % 64
 
 		alg.Compress(&d.chain, &d.block, d.counter, d.blen, d.flags, &tmp)
 
-		*(*[8]uint32)(d.block[0:8]) = a.stack.stack[col]
-		*(*[8]uint32)(d.block[8:16]) = *(*[8]uint32)(tmp[0:8])
+		utils.ChainToBytes(&a.stack.stack[col], (*[32]byte)(d.block[0:32]))
+		copy(d.block[32:], tmp[:32])
 
 		if occ == a.stack.occ {
 			d.chain = a.key
@@ -234,37 +228,21 @@ func writeChain(in *[8]uint32, out *chainVector, col int) {
 //
 
 func compressAll(d *Digest, in []byte, flags uint32, key [8]uint32) {
-	var compressed [16]uint32
+	var compressed [64]byte
 
 	d.chain = key
 	d.flags = flags | consts.Flag_ChunkStart
 
 	for len(in) > 64 {
-		buf := (*[64]byte)(in)
+		alg.Compress(&d.chain, (*[64]byte)(in), 0, consts.BlockLen, d.flags, &compressed)
 
-		var block *[16]uint32
-		if consts.OptimizeLittleEndian {
-			block = (*[16]uint32)(unsafe.Pointer(buf))
-		} else {
-			block = &d.block
-			utils.BytesToWords(buf, block)
-		}
-
-		alg.Compress(&d.chain, block, 0, consts.BlockLen, d.flags, &compressed)
-
-		d.chain = *(*[8]uint32)(compressed[0:8])
+		d.chain = utils.ChainFromBytes(&compressed)
 		d.flags &^= consts.Flag_ChunkStart
 
 		in = in[64:]
 	}
 
-	if consts.OptimizeLittleEndian {
-		copy((*[64]byte)(unsafe.Pointer(&d.block[0]))[:], in)
-	} else {
-		var tmp [64]byte
-		copy(tmp[:], in)
-		utils.BytesToWords(&tmp, &d.block)
-	}
+	copy(d.block[:], in)
 
 	d.blen = uint32(len(in))
 	d.flags |= consts.Flag_ChunkEnd | consts.Flag_Root

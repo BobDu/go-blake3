@@ -37,11 +37,11 @@ func main() {
 
 	TEXT("Compress", NOSPLIT, `func(
 		chain *[8]uint32,
-		block *[16]uint32,
+		block *[64]byte,
 		counter uint64,
 		blen uint32,
 		flags uint32,
-		out *[16]uint32,
+		out *[64]byte,
 	)`)
 
 	var (
