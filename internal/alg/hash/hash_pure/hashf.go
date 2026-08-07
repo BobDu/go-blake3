@@ -6,14 +6,13 @@ import (
 	"github.com/zeebo/blake3/internal/utils"
 )
 
-func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint32, out *[64]uint32, chain *[8]uint32) {
+func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[32]byte, out *[64]uint32, chain *[8]uint32) {
 	var tmp [2][64]byte
 
-	var keyb [32]byte
-	utils.ChainToBytes(key, &keyb)
+	k := *key // compressing from a stack copy is measurably faster
 
 	for i := uint64(0); consts.ChunkLen*i < length && i < 8; i++ {
-		bchain := &keyb
+		bchain := &k
 		bflags := flags | consts.Flag_ChunkStart
 		start := consts.ChunkLen * i
 

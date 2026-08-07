@@ -6,7 +6,6 @@ import (
 
 	"github.com/zeebo/assert"
 	"github.com/zeebo/blake3/internal/consts"
-	"github.com/zeebo/blake3/internal/utils"
 )
 
 func TestHasher_Vectors(t *testing.T) {
@@ -43,7 +42,7 @@ func TestHasher_Vectors(t *testing.T) {
 
 	t.Run("Basic", func(t *testing.T) {
 		for _, tv := range vectors {
-			h := hasher{key: consts.IV, keyb: consts.IVBytes}
+			h := hasher{key: consts.IV}
 			check(t, h, tv.input(), tv.hash)
 		}
 	})
@@ -51,8 +50,7 @@ func TestHasher_Vectors(t *testing.T) {
 	t.Run("Keyed", func(t *testing.T) {
 		for _, tv := range vectors {
 			h := hasher{flags: consts.Flag_Keyed}
-			utils.KeyFromBytes([]byte(testVectorKey), &h.key)
-			copy(h.keyb[:], testVectorKey)
+			copy(h.key[:], testVectorKey)
 			check(t, h, tv.input(), tv.keyedHash)
 		}
 	})
@@ -60,13 +58,12 @@ func TestHasher_Vectors(t *testing.T) {
 	t.Run("DeriveKey", func(t *testing.T) {
 		var buf [32]byte
 		for _, tv := range vectors {
-			h := hasher{flags: consts.Flag_DeriveKeyContext, key: consts.IV, keyb: consts.IVBytes}
+			h := hasher{flags: consts.Flag_DeriveKeyContext, key: consts.IV}
 			h.updateString(testVectorContext)
 			h.finalize(buf[:])
 			h.reset()
 			h.flags = consts.Flag_DeriveKeyMaterial
-			utils.KeyFromBytes(buf[:], &h.key)
-			h.keyb = buf
+			h.key = buf
 			check(t, h, tv.input(), tv.deriveKey)
 		}
 	})
@@ -84,7 +81,7 @@ func TestHasherAlignment(t *testing.T) {
 		x[i] = byte(i) % 251
 	}
 
-	h := hasher{key: consts.IV, keyb: consts.IVBytes}
+	h := hasher{key: consts.IV}
 	h.update(x[1:])
 	h.finalize(buf[:])
 

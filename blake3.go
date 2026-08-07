@@ -17,10 +17,9 @@ type hasher struct {
 	len    uint64
 	chunks uint64
 	flags  uint32
-	key    [8]uint32
+	key    [32]byte
 	stack  cvstack
 	buf    [8192]byte
-	keyb   [32]byte // key serialized little-endian; always set together
 }
 
 func (a *hasher) reset() {
@@ -72,16 +71,16 @@ func (a *hasher) finalize(p []byte) {
 
 func (a *hasher) finalizeDigest(d *Digest) {
 	if a.chunks == 0 && a.len <= consts.ChunkLen {
-		compressAll(d, a.buf[:a.len], a.flags, &a.keyb)
+		compressAll(d, a.buf[:a.len], a.flags, &a.key)
 		return
 	}
 
-	d.chain = a.keyb
+	d.chain = a.key
 	d.flags = a.flags | consts.Flag_ChunkEnd
 
 	if a.len > 64 {
 		var buf chainVector
-		chain := a.key
+		chain := utils.ChainFromBytes(&a.key)
 		alg.HashF(&a.buf, a.len, a.chunks, a.flags, &a.key, &buf, &chain)
 
 		if a.len > consts.ChunkLen {
@@ -123,7 +122,7 @@ func (a *hasher) finalizeDigest(d *Digest) {
 		copy(d.block[32:], tmp[:32])
 
 		if occ == a.stack.occ {
-			d.chain = a.keyb
+			d.chain = a.key
 			d.counter = 0
 			d.blen = consts.BlockLen
 			d.flags = a.flags | consts.Flag_Parent
@@ -147,7 +146,7 @@ type cvstack struct {
 	stack [64][8]uint32
 }
 
-func (a *cvstack) pushN(l uint8, cv *chainVector, n int, flags uint32, key *[8]uint32) {
+func (a *cvstack) pushN(l uint8, cv *chainVector, n int, flags uint32, key *[32]byte) {
 	for i := 0; i < n; i++ {
 		a.pushL(l, cv, i)
 		for a.bufn == 8 {
@@ -171,7 +170,7 @@ func (a *cvstack) pushL(l uint8, cv *chainVector, n int) {
 	a.occ ^= bit
 }
 
-func (a *cvstack) flush(flags uint32, key *[8]uint32) {
+func (a *cvstack) flush(flags uint32, key *[32]byte) {
 	var out chainVector
 	alg.HashP(&a.buf[0], &a.buf[1], flags|consts.Flag_Parent, key, &out, a.bufn)
 

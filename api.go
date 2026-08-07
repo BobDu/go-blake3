@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/zeebo/blake3/internal/consts"
-	"github.com/zeebo/blake3/internal/utils"
 )
 
 // Hasher is a hash.Hash for BLAKE3.
@@ -21,8 +20,7 @@ func New() *Hasher {
 	return &Hasher{
 		size: 32,
 		h: hasher{
-			key:  consts.IV,
-			keyb: consts.IVBytes,
+			key: consts.IV,
 		},
 	}
 }
@@ -42,8 +40,7 @@ func NewKeyed(key []byte) (*Hasher, error) {
 			flags: consts.Flag_Keyed,
 		},
 	}
-	utils.KeyFromBytes(key, &h.h.key)
-	copy(h.h.keyb[:], key)
+	copy(h.h.key[:], key)
 
 	return h, nil
 }
@@ -71,7 +68,6 @@ func NewDeriveKey(context string) *Hasher {
 		size: 32,
 		h: hasher{
 			key:   consts.IV,
-			keyb:  consts.IVBytes,
 			flags: consts.Flag_DeriveKeyContext,
 		},
 	}
@@ -81,8 +77,7 @@ func NewDeriveKey(context string) *Hasher {
 	_, _ = h.Digest().Read(buf[:])
 
 	h.Reset()
-	utils.KeyFromBytes(buf[:], &h.h.key)
-	h.h.keyb = buf
+	h.h.key = buf
 	h.h.flags = consts.Flag_DeriveKeyMaterial
 
 	return h
@@ -168,12 +163,12 @@ func Sum512(data []byte) (sum [64]byte) {
 
 func sumSmall(data []byte, out []byte) {
 	var d Digest
-	compressAll(&d, data, 0, &consts.IVBytes)
+	compressAll(&d, data, 0, &consts.IV)
 	_, _ = d.Read(out[:])
 }
 
 func sumLarge(data []byte, out []byte) {
-	h := hasher{key: consts.IV, keyb: consts.IVBytes}
+	h := hasher{key: consts.IV}
 	h.update(data)
 	h.finalize(out[:])
 }
