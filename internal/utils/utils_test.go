@@ -7,13 +7,13 @@ import (
 )
 
 func TestChainFromBytes(t *testing.T) {
-	var out [64]byte
-	for i := range out {
-		out[i] = byte(i)
+	var chain [32]byte
+	for i := range chain {
+		chain[i] = byte(i)
 	}
 
-	chain := ChainFromBytes(&out)
-	for i, w := range chain {
+	words := ChainFromBytes(&chain)
+	for i, w := range words {
 		b := 4 * uint32(i)
 		assert.Equal(t, b|(b+1)<<8|(b+2)<<16|(b+3)<<24, w)
 	}

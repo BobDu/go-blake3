@@ -15,7 +15,7 @@ func TestCompress(t *testing.T) {
 		t.SkipNow()
 	}
 
-	var chain [8]uint32
+	var chain [32]byte
 	var block [64]byte
 
 	for i := 0; i < 1e5; i++ {
@@ -23,7 +23,7 @@ func TestCompress(t *testing.T) {
 
 		counter, blen, flags := pcg.Uint64(), pcg.Uint32(), pcg.Uint32()
 		for i := range &chain {
-			chain[i] = pcg.Uint32()
+			chain[i] = byte(pcg.Uint32())
 		}
 		for i := range &block {
 			block[i] = byte(pcg.Uint32())

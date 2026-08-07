@@ -8,7 +8,7 @@ import (
 )
 
 func Compress(
-	chain *[8]uint32,
+	chain *[32]byte,
 	m *[64]byte,
 	counter uint64,
 	blen uint32,
@@ -17,8 +17,14 @@ func Compress(
 ) {
 
 	s := [16]uint32{
-		chain[0], chain[1], chain[2], chain[3],
-		chain[4], chain[5], chain[6], chain[7],
+		binary.LittleEndian.Uint32(chain[0:]),
+		binary.LittleEndian.Uint32(chain[4:]),
+		binary.LittleEndian.Uint32(chain[8:]),
+		binary.LittleEndian.Uint32(chain[12:]),
+		binary.LittleEndian.Uint32(chain[16:]),
+		binary.LittleEndian.Uint32(chain[20:]),
+		binary.LittleEndian.Uint32(chain[24:]),
+		binary.LittleEndian.Uint32(chain[28:]),
 		consts.IV0, consts.IV1, consts.IV2, consts.IV3,
 		uint32(counter), uint32(counter >> 32), blen, flags,
 	}

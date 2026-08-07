@@ -12,7 +12,7 @@ import (
 // the output stream.
 type Digest struct {
 	counter uint64
-	chain   [8]uint32
+	chain   [32]byte
 	block   [64]byte
 	blen    uint32
 	flags   uint32

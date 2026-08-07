@@ -21,7 +21,8 @@ func New() *Hasher {
 	return &Hasher{
 		size: 32,
 		h: hasher{
-			key: consts.IV,
+			key:  consts.IV,
+			keyb: consts.IVBytes,
 		},
 	}
 }
@@ -42,6 +43,7 @@ func NewKeyed(key []byte) (*Hasher, error) {
 		},
 	}
 	utils.KeyFromBytes(key, &h.h.key)
+	copy(h.h.keyb[:], key)
 
 	return h, nil
 }
@@ -69,6 +71,7 @@ func NewDeriveKey(context string) *Hasher {
 		size: 32,
 		h: hasher{
 			key:   consts.IV,
+			keyb:  consts.IVBytes,
 			flags: consts.Flag_DeriveKeyContext,
 		},
 	}
@@ -79,6 +82,7 @@ func NewDeriveKey(context string) *Hasher {
 
 	h.Reset()
 	utils.KeyFromBytes(buf[:], &h.h.key)
+	h.h.keyb = buf
 	h.h.flags = consts.Flag_DeriveKeyMaterial
 
 	return h
@@ -164,12 +168,12 @@ func Sum512(data []byte) (sum [64]byte) {
 
 func sumSmall(data []byte, out []byte) {
 	var d Digest
-	compressAll(&d, data, 0, consts.IV)
+	compressAll(&d, data, 0, &consts.IVBytes)
 	_, _ = d.Read(out[:])
 }
 
 func sumLarge(data []byte, out []byte) {
-	h := hasher{key: consts.IV}
+	h := hasher{key: consts.IV, keyb: consts.IVBytes}
 	h.update(data)
 	h.finalize(out[:])
 }

@@ -36,7 +36,7 @@ func main() {
 	}
 
 	TEXT("Compress", NOSPLIT, `func(
-		chain *[8]uint32,
+		chain *[32]byte,
 		block *[64]byte,
 		counter uint64,
 		blen uint32,

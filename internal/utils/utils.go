@@ -4,18 +4,17 @@ import (
 	"encoding/binary"
 )
 
-// ChainFromBytes reads the first eight little-endian words of a compression
-// output as a chaining value.
-func ChainFromBytes(out *[64]byte) [8]uint32 {
+// ChainFromBytes reads the eight little-endian words of a chaining value.
+func ChainFromBytes(chain *[32]byte) [8]uint32 {
 	return [8]uint32{
-		binary.LittleEndian.Uint32(out[0:]),
-		binary.LittleEndian.Uint32(out[4:]),
-		binary.LittleEndian.Uint32(out[8:]),
-		binary.LittleEndian.Uint32(out[12:]),
-		binary.LittleEndian.Uint32(out[16:]),
-		binary.LittleEndian.Uint32(out[20:]),
-		binary.LittleEndian.Uint32(out[24:]),
-		binary.LittleEndian.Uint32(out[28:]),
+		binary.LittleEndian.Uint32(chain[0:]),
+		binary.LittleEndian.Uint32(chain[4:]),
+		binary.LittleEndian.Uint32(chain[8:]),
+		binary.LittleEndian.Uint32(chain[12:]),
+		binary.LittleEndian.Uint32(chain[16:]),
+		binary.LittleEndian.Uint32(chain[20:]),
+		binary.LittleEndian.Uint32(chain[24:]),
+		binary.LittleEndian.Uint32(chain[28:]),
 	}
 }
 

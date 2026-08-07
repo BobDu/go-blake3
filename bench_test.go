@@ -158,7 +158,7 @@ func BenchmarkHashP(b *testing.B) {
 }
 
 func BenchmarkCompress(b *testing.B) {
-	var c [8]uint32
+	var c [32]byte
 	var m, o [64]byte
 
 	b.SetBytes(64)

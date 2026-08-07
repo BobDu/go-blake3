@@ -20,6 +20,7 @@ type hasher struct {
 	key    [8]uint32
 	stack  cvstack
 	buf    [8192]byte
+	keyb   [32]byte // key serialized little-endian; always set together
 }
 
 func (a *hasher) reset() {
@@ -71,16 +72,17 @@ func (a *hasher) finalize(p []byte) {
 
 func (a *hasher) finalizeDigest(d *Digest) {
 	if a.chunks == 0 && a.len <= consts.ChunkLen {
-		compressAll(d, a.buf[:a.len], a.flags, a.key)
+		compressAll(d, a.buf[:a.len], a.flags, &a.keyb)
 		return
 	}
 
-	d.chain = a.key
+	d.chain = a.keyb
 	d.flags = a.flags | consts.Flag_ChunkEnd
 
 	if a.len > 64 {
 		var buf chainVector
-		alg.HashF(&a.buf, a.len, a.chunks, a.flags, &a.key, &buf, &d.chain)
+		chain := a.key
+		alg.HashF(&a.buf, a.len, a.chunks, a.flags, &a.key, &buf, &chain)
 
 		if a.len > consts.ChunkLen {
 			complete := (a.len - 1) / consts.ChunkLen
@@ -88,6 +90,8 @@ func (a *hasher) finalizeDigest(d *Digest) {
 			a.chunks += complete
 			a.len = uint64(copy(a.buf[:], a.buf[complete*consts.ChunkLen:a.len]))
 		}
+
+		utils.ChainToBytes(&chain, &d.chain)
 	}
 
 	if a.len <= 64 {
@@ -119,7 +123,7 @@ func (a *hasher) finalizeDigest(d *Digest) {
 		copy(d.block[32:], tmp[:32])
 
 		if occ == a.stack.occ {
-			d.chain = a.key
+			d.chain = a.keyb
 			d.counter = 0
 			d.blen = consts.BlockLen
 			d.flags = a.flags | consts.Flag_Parent
@@ -227,21 +231,22 @@ func writeChain(in *[8]uint32, out *chainVector, col int) {
 // compress <= chunkLen bytes in one shot
 //
 
-func compressAll(d *Digest, in []byte, flags uint32, key [8]uint32) {
-	var compressed [64]byte
+func compressAll(d *Digest, in []byte, flags uint32, key *[32]byte) {
+	var out [2][64]byte
 
-	d.chain = key
+	chain := key
 	d.flags = flags | consts.Flag_ChunkStart
 
-	for len(in) > 64 {
-		alg.Compress(&d.chain, (*[64]byte)(in), 0, consts.BlockLen, d.flags, &compressed)
+	for i := 0; len(in) > 64; i++ {
+		alg.Compress(chain, (*[64]byte)(in), 0, consts.BlockLen, d.flags, &out[i&1])
 
-		d.chain = utils.ChainFromBytes(&compressed)
+		chain = (*[32]byte)(out[i&1][0:32])
 		d.flags &^= consts.Flag_ChunkStart
 
 		in = in[64:]
 	}
 
+	d.chain = *chain
 	copy(d.block[:], in)
 
 	d.blen = uint32(len(in))

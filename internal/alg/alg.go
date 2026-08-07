@@ -13,6 +13,6 @@ func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint3
 	hash.HashP(left, right, flags, key, out, n)
 }
 
-func Compress(chain *[8]uint32, block *[64]byte, counter uint64, blen uint32, flags uint32, out *[64]byte) {
+func Compress(chain *[32]byte, block *[64]byte, counter uint64, blen uint32, flags uint32, out *[64]byte) {
 	compress.Compress(chain, block, counter, blen, flags, out)
 }

@@ -1,6 +1,15 @@
 package consts
 
+import "encoding/binary"
+
 var IV = [...]uint32{IV0, IV1, IV2, IV3, IV4, IV5, IV6, IV7}
+
+var IVBytes = func() (b [32]byte) {
+	for i, v := range IV {
+		binary.LittleEndian.PutUint32(b[4*i:], v)
+	}
+	return b
+}()
 
 const (
 	IV0 = 0x6A09E667
