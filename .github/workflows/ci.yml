@@ -1,0 +1,170 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        # amd64 and arm64 are the architectures with assembly, so they carry
+        # the toolchain axis: the floor go.mod promises, and current Go.
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        go: ["1.24.x", "stable"]
+        include:
+          # Nothing in this module is selected by GOOS, so these are not about
+          # the algorithm: they check that the assembly still links and runs as
+          # Mach-O and PE/COFF. One current-Go leg each is enough.
+          - os: macos-latest
+            go: stable
+          - os: windows-latest
+            go: stable
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Test
+        run: go test ./...
+      - name: Test the pure Go build
+        run: go test -tags=purego ./...
+      # Each backend test calls t.SkipNow when its instruction set is absent
+      # and the package still reports ok, so a feature gate that stopped
+      # matching would leave the assembly untested with nothing turning red.
+      - name: Check the assembly backends ran
+        run: |
+          case "$RUNNER_ARCH" in
+          X64)   pkgs="./internal/alg/hash/hash_avx2 ./internal/alg/compress/compress_sse41" ;;
+          ARM64) pkgs="./internal/alg/hash/hash_neon" ;;
+          *)     echo "no assembly backend exists for $RUNNER_ARCH"; exit 1 ;;
+          esac
+          out=$(go test -count=1 -v $pkgs)
+          echo "$out"
+          if echo "$out" | grep -q -- '--- SKIP'; then
+            echo "the backend tests skipped, so no assembly was verified here"
+            exit 1
+          fi
+
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+      - name: Install qemu
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y qemu-user
+      # Whole CPU models only. Subtractive masks describe parts that cannot
+      # exist, and qemu mis-decodes them: `Haswell,-sse4.1` keeps AVX2 while
+      # clearing SSE4.1, and qemu gates VPTEST on the SSE4.1 bit, so the Go
+      # runtime takes SIGILL in bytealg before main runs.
+      #
+      # -count=1 everywhere because -exec is not part of the test cache key.
+      - name: Haswell, the first AVX2 part
+        run: |
+          out=$(go test -count=1 -v -exec='qemu-x86_64 -cpu Haswell' ./internal/alg/hash/hash_avx2/)
+          echo "$out"
+          if echo "$out" | grep -q -- '--- SKIP'; then
+            echo "emulated Haswell did not offer AVX2, so the legs below prove nothing"
+            exit 1
+          fi
+          go test -count=1 -exec='qemu-x86_64 -cpu Haswell' ./...
+      - name: Penryn, the first SSE4.1 part
+        run: go test -count=1 -exec='qemu-x86_64 -cpu Penryn' ./...
+      - name: qemu64, no SIMD at all
+        run: go test -count=1 -exec='qemu-x86_64 -cpu qemu64' ./...
+
+  portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+      # vet's asmdecl pass only reads the .s files of the target GOARCH, so
+      # amd64 and arm64 are what check the assembly signatures. The rest of the
+      # list is what checks that the two build constraints behind
+      # consts.OptimizeLittleEndian stay exactly complementary as Go adds
+      # ports, which neither amd64 nor arm64 can see.
+      - name: Vet every port
+        env:
+          CGO_ENABLED: "1" # android and ios will not build without it
+          GO386: softfloat
+        run: |
+          rc=0
+          for port in $(go tool dist list); do
+            export GOOS="${port%/*}" GOARCH="${port#*/}"
+            go vet ./... || rc=1
+            go vet -tags=purego ./... || rc=1
+          done
+          exit $rc
+      - name: Install qemu
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y qemu-user
+      # The only way to execute the big endian branches against the vectors.
+      - name: Test on s390x
+        env:
+          GOARCH: s390x
+        run: |
+          go test -exec=qemu-s390x ./...
+          go test -exec=qemu-s390x -tags=purego ./...
+
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+      # -B because checkout stamps every file with the same mtime, so make
+      # would decide the .s files are up to date and regenerate nothing.
+      - name: Regenerate the assembly
+        run: make -B asm
+      - name: Check the committed assembly matches
+        run: |
+          if ! git diff --quiet; then
+            echo "the committed .s files differ from avo's output; run 'make -B asm'"
+            git diff
+            exit 1
+          fi
