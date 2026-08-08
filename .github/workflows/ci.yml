@@ -1,0 +1,84 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [1.24.x, 1.25.x, 1.26.x]
+        os: [ubuntu-latest, macos-latest, windows-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Test
+        run: go test -v ./...
+      - name: Test purego
+        run: go test -v -tags=purego ./...
+      # amd64 only: HasAVX2 needs an x86 cpuid bit, so on the arm runners this
+      # would just rerun the step above. -count=1 because the BLAKE3_ switches
+      # are read in package init, which the test cache does not key on.
+      - name: Test without AVX2
+        if: runner.arch == 'X64'
+        run: go test -v -count=1 ./...
+        env:
+          BLAKE3_DISABLE_AVX2: "1"
+
+  gen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.x
+      - name: vet
+        run: |
+          go vet ./...
+          GOARCH=arm64 go vet ./...
+      - name: fmt
+        run: gofmt -w .
+      # -B because checkout gives every file the same mtime, so a bare
+      # `make asm` decides there is nothing to do and regenerates nothing.
+      - name: generate
+        run: make -B asm
+      - name: Git Status
+        run: |
+          git diff
+          test -z "$(git status --porcelain)"
+
+  bigendian:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.x
+      - name: Install qemu
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y qemu-user
+      - name: Test
+        run: GOARCH=s390x go test -v -exec=qemu-s390x ./...
+      - name: Test purego
+        run: GOARCH=s390x go test -v -exec=qemu-s390x -tags=purego ./...
