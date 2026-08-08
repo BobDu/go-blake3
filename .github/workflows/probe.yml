@@ -1,0 +1,10 @@
+name: perm-probe
+
+on:
+  pull_request:
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "see the Set up job group for the granted token scopes"
