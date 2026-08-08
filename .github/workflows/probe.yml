@@ -1,0 +1,9 @@
+name: gover-probe
+on: pull_request
+jobs:
+  no-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+      - run: go version
