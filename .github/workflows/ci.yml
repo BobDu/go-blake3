@@ -51,6 +51,8 @@ jobs:
       # and the package still reports ok, so a feature gate that stopped
       # matching would leave the assembly untested with nothing turning red.
       - name: Check the assembly backends ran
+        env:
+          BLAKE3_DISABLE_AVX2: "1"   # PROBE ONLY: must make this step fail on amd64
         run: |
           case "$RUNNER_ARCH" in
           X64)   pkgs="./internal/alg/hash/hash_avx2 ./internal/alg/compress/compress_sse41" ;;
