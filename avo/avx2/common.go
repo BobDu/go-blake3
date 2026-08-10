@@ -196,15 +196,25 @@ func addms(alloc *Alloc, mps []Mem, as []*Value) {
 	}
 }
 
+// Both operands commute, so when only one of them is spilled it goes in the
+// memory operand rather than being reloaded into a register first.
 func add(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
-	VPADDD(a.Get(), b.Consume(), o.Get())
+	if !b.HasReg() && a.HasReg() {
+		VPADDD(b.ConsumeOp(), a.Get(), o.Get())
+	} else {
+		VPADDD(a.GetOp(), b.Consume(), o.Get())
+	}
 	return o
 }
 
 func xor(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
-	VPXOR(a.Get(), b.Consume(), o.Get())
+	if !b.HasReg() && a.HasReg() {
+		VPXOR(b.ConsumeOp(), a.Get(), o.Get())
+	} else {
+		VPXOR(a.GetOp(), b.Consume(), o.Get())
+	}
 	return o
 }
 

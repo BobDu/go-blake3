@@ -1452,35 +1452,32 @@ TEXT ·HashP(SB), NOSPLIT, $72-48
 	VPADDD       192(AX), Y3, Y3
 	VPBROADCASTD 16(BX), Y4
 	VPADDD       Y4, Y0, Y0
-	VMOVDQU      zero<>+0(SB), Y5
-	VPXOR        Y0, Y5, Y5
+	VPXOR        zero<>+0(SB), Y0, Y5
 	VPSHUFB      rot16_shuf<>+0(SB), Y5, Y5
 	VPBROADCASTD 20(BX), Y6
 	VPADDD       Y6, Y1, Y1
-	VMOVDQU      zero<>+0(SB), Y7
-	VPXOR        Y1, Y7, Y7
+	VPXOR        zero<>+0(SB), Y1, Y7
 	VPSHUFB      rot16_shuf<>+0(SB), Y7, Y7
 	VPBROADCASTD 24(BX), Y8
 	VPADDD       Y8, Y2, Y2
-	VMOVDQU      block_len<>+0(SB), Y9
-	VPXOR        Y2, Y9, Y9
+	VPXOR        block_len<>+0(SB), Y2, Y9
 	VPSHUFB      rot16_shuf<>+0(SB), Y9, Y9
 	VPBROADCASTD 28(BX), Y10
 	VPADDD       Y10, Y3, Y3
 	VPBROADCASTD 64(SP), Y11
-	VPXOR        Y3, Y11, Y11
+	VPXOR        Y11, Y3, Y11
 	VPSHUFB      rot16_shuf<>+0(SB), Y11, Y11
 	VPBROADCASTD iv<>+0(SB), Y12
-	VPADDD       Y5, Y12, Y12
+	VPADDD       Y12, Y5, Y12
 	VPXOR        Y12, Y4, Y4
 	VPBROADCASTD iv<>+4(SB), Y13
-	VPADDD       Y7, Y13, Y13
+	VPADDD       Y13, Y7, Y13
 	VPXOR        Y13, Y6, Y6
 	VPBROADCASTD iv<>+8(SB), Y14
-	VPADDD       Y9, Y14, Y14
+	VPADDD       Y14, Y9, Y14
 	VPXOR        Y14, Y8, Y8
 	VPBROADCASTD iv<>+12(SB), Y15
-	VPADDD       Y11, Y15, Y15
+	VPADDD       Y15, Y11, Y15
 	VPXOR        Y15, Y10, Y10
 	VMOVDQA      Y0, (DI)
 	VPSRLD       $0x0c, Y4, Y0
