@@ -35,12 +35,16 @@ func HashF(c Ctx) {
 
 	{
 		Comment("Allocate local space and align it")
-		local := AllocLocal(roundSize + 32)
-		LEAQ(local.Offset(31), stash)
-		ANDQ(I32(^31), stash)
+		local := AllocLocal(roundSize + 32*16 + 64)
+		LEAQ(local.Offset(63), stash)
+		ANDQ(I32(^63), stash)
 	}
 
-	alloc := NewAlloc(Mem{Base: stash})
+	// The message buffer sees 112 loads and 16 stores per block. Putting it
+	// at the 64-byte aligned base keeps every slot inside one cache line;
+	// AllocLocal alone only guarantees the platform stack alignment.
+	msg := Mem{Base: stash}
+	alloc := NewAlloc(Mem{Base: stash}.Offset(32 * 16))
 	defer alloc.Free()
 
 	flags_mem := AllocLocal(8)
@@ -49,7 +53,6 @@ func HashF(c Ctx) {
 	tmp := AllocLocal(32)
 	ctr_lo_mem := AllocLocal(32)
 	ctr_hi_mem := AllocLocal(32)
-	msg := AllocLocal(32 * 16)
 
 	var (
 		h_vecs    []*Value
