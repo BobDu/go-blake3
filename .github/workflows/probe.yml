@@ -1,0 +1,21 @@
+name: gv2
+on: pull_request
+jobs:
+  a-preinstalled:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: 'echo "A preinstalled: $(go version)"'
+  b-setupgo-nover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+      - run: 'echo "B setup-go no version, go.mod=1.24.0: $(go version)"'
+  c-gomod-bumped:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: sed -i 's/^go 1.24.0$/go 1.25.0/' go.mod && grep '^go ' go.mod
+      - uses: actions/setup-go@v7.0.0
+      - run: 'echo "C setup-go no version, go.mod=1.25.0: $(go version)"'
