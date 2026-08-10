@@ -1,0 +1,20 @@
+name: gv3
+on: pull_request
+jobs:
+  d-versionfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: 'echo "D go-version-file, go.mod=1.24.0: $(go version)"'
+  e-versionfile-bumped:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: sed -i 's/^go 1.24.0$/go 1.25.0/' go.mod && grep '^go ' go.mod
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: 'echo "E go-version-file, go.mod=1.25.0: $(go version)"'
