@@ -169,6 +169,15 @@ func round(c Ctx, alloc *Alloc, vs []*Value, r int, m func(n int) Mem) {
 			vs[4+j] = xor(alloc, vs[8+j], vs[4+j])
 		}
 
+		// The allocator evicts its least recently used value. vs[0:4] is what
+		// the next partial adds the message to, and that add already spends the
+		// single memory operand on the message, so an eviction there costs a
+		// reload. Every other row is next used in a commutative register op,
+		// where a spill folds into the operand instead.
+		for _, v := range vs[0:4] {
+			v.Touch()
+		}
+
 		rotNs(alloc, p.rot, vs[4:8])
 
 		// roll the blocks
