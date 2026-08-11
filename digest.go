@@ -98,3 +98,5 @@ func (d *Digest) fillBuf() {
 	d.counter++
 	d.bufn = consts.BlockLen
 }
+
+func init() { layoutPadSink = layoutPad }

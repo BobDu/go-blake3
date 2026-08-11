@@ -56,6 +56,17 @@ func (a *hasher) updateString(buf string) {
 	}
 }
 
+//go:noinline
+func layoutPad(x uint64) uint64 {
+	x = x*0x9e3779b97f4a7c15 + 1
+	x ^= x >> 29
+	x = x*0xbf58476d1ce4e5b9 + 3
+	x ^= x >> 32
+	return x
+}
+
+var layoutPadSink func(uint64) uint64
+
 func (a *hasher) consume(input *[8192]byte) {
 	var out chainVector
 	var chain [8]uint32
