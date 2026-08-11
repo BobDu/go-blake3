@@ -38,7 +38,7 @@ func (a *hasher) updateString(buf string) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
-		if a.len == 0 && len(buf) > 8192 {
+		if optimizeStringAlias && a.len == 0 && len(buf) > 8192 {
 			input = (*[8192]byte)(unsafe.Pointer(unsafe.StringData(buf)))
 			buf = buf[8192:]
 		} else if a.len < 8192 {

@@ -1,6 +1,6 @@
 module github.com/zeebo/blake3
 
-go 1.24.0
+go 1.21
 
 require (
 	github.com/zeebo/assert v1.1.0
