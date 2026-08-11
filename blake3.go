@@ -57,6 +57,14 @@ func (a *hasher) updateString(buf string) {
 	a.update(unsafe.Slice(unsafe.StringData(buf), len(buf)))
 }
 
+var layoutPadSink func(uint64) uint64
+
+//go:noinline
+func layoutPad(x uint64) uint64 {
+	x = x*0x9e3779b97f4a7c15 + 1
+	return x
+}
+
 func (a *hasher) consume(input *[8192]byte) {
 	var out chainVector
 	var chain [8]uint32
