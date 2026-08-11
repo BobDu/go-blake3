@@ -34,7 +34,7 @@ func (a *hasher) update(buf []byte) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
-		if a.len == 0 && len(buf) > 8192 {
+		if len(buf) > 8192 && a.len == 0 {
 			input = (*[8192]byte)(buf)
 			buf = buf[8192:]
 		} else if a.len < 8192 {
