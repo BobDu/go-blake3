@@ -30,10 +30,6 @@ func (a *hasher) reset() {
 	a.stack.bufn = 0
 }
 
-func (a *hasher) update(buf []byte) {
-	a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
-}
-
 func (a *hasher) updateString(buf string) {
 	var input *[8192]byte
 
@@ -54,6 +50,10 @@ func (a *hasher) updateString(buf string) {
 		a.len = 0
 		a.chunks += 8
 	}
+}
+
+func (a *hasher) update(buf []byte) {
+	a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
 }
 
 func (a *hasher) consume(input *[8192]byte) {
