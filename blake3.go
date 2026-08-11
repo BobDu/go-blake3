@@ -35,6 +35,14 @@ func (a *hasher) update(buf []byte) {
 }
 
 func (a *hasher) updateString(buf string) {
+	if a.len == 0 && len(buf) <= 8192 {
+		a.len = uint64(copy(a.buf[:], buf))
+	} else {
+		a.updateStringSlow(buf)
+	}
+}
+
+func (a *hasher) updateStringSlow(buf string) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
