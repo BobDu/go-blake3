@@ -31,6 +31,13 @@ func (a *hasher) reset() {
 }
 
 func (a *hasher) update(buf []byte) {
+	if len(buf) == 0 {
+		return
+	}
+	a.updateBytes(buf)
+}
+
+func (a *hasher) updateBytes(buf []byte) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
