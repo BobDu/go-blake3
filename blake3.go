@@ -31,15 +31,11 @@ func (a *hasher) reset() {
 }
 
 func (a *hasher) update(buf []byte) {
-	a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
-}
-
-func (a *hasher) updateString(buf string) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
 		if a.len == 0 && len(buf) > 8192 {
-			input = (*[8192]byte)(unsafe.Pointer(unsafe.StringData(buf)))
+			input = (*[8192]byte)(buf)
 			buf = buf[8192:]
 		} else if a.len < 8192 {
 			n := copy(a.buf[a.len:], buf)
@@ -54,6 +50,11 @@ func (a *hasher) updateString(buf string) {
 		a.len = 0
 		a.chunks += 8
 	}
+}
+
+func (a *hasher) updateString(buf string) {
+	// The update loop never writes through the view.
+	a.update(unsafe.Slice(unsafe.StringData(buf), len(buf)))
 }
 
 func (a *hasher) consume(input *[8192]byte) {
