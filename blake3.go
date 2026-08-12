@@ -38,6 +38,7 @@ func (a *hasher) update(buf []byte) {
 	}
 }
 
+//go:noinline
 func (a *hasher) updateSlow(buf []byte) {
 	a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
 }
