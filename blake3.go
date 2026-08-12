@@ -53,8 +53,10 @@ func (a *hasher) update(buf []byte) {
 }
 
 func (a *hasher) updateString(buf string) {
-	// The update loop never writes through the view.
-	a.update(unsafe.Slice(unsafe.StringData(buf), len(buf)))
+	if len(buf) == 0 {
+		return
+	}
+	a.update(unsafe.Slice(&[]byte(buf)[0], len(buf)))
 }
 
 func (a *hasher) consume(input *[8192]byte) {
