@@ -31,7 +31,11 @@ func (a *hasher) reset() {
 }
 
 func (a *hasher) update(buf []byte) {
-	a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
+	if a.len == 0 && len(buf) <= 8192 {
+		a.len = uint64(copy(a.buf[:], buf))
+	} else {
+		a.updateString(unsafe.String(unsafe.SliceData(buf), len(buf)))
+	}
 }
 
 func (a *hasher) updateString(buf string) {
