@@ -20,6 +20,7 @@ type hasher struct {
 	key    [8]uint32
 	stack  cvstack
 	buf    [8192]byte
+	pad    [8192]byte
 }
 
 func (a *hasher) reset() {
