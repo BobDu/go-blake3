@@ -19,7 +19,7 @@ type hasher struct {
 	flags  uint32
 	key    [8]uint32
 	stack  cvstack
-	buf    [8192]byte
+	buf    [16384]byte
 }
 
 func (a *hasher) reset() {
@@ -35,13 +35,13 @@ func (a *hasher) update(buf []byte) {
 }
 
 func (a *hasher) updateString(buf string) {
-	var input *[8192]byte
+	var input *[16384]byte
 
 	for len(buf) > 0 {
-		if a.len == 0 && len(buf) > 8192 {
-			input = (*[8192]byte)(unsafe.Pointer(unsafe.StringData(buf)))
-			buf = buf[8192:]
-		} else if a.len < 8192 {
+		if a.len == 0 && len(buf) > 16384 {
+			input = (*[16384]byte)(unsafe.Pointer(unsafe.StringData(buf)))
+			buf = buf[16384:]
+		} else if a.len < 16384 {
 			n := copy(a.buf[a.len:], buf)
 			a.len += uint64(n)
 			buf = buf[n:]
@@ -52,15 +52,20 @@ func (a *hasher) updateString(buf string) {
 
 		a.consume(input)
 		a.len = 0
-		a.chunks += 8
+		a.chunks += 16
 	}
 }
 
-func (a *hasher) consume(input *[8192]byte) {
+// consume hashes sixteen chunks. The kernels are eight wide, so it runs them
+// twice; only the buffer size differs from the eight-chunk version.
+func (a *hasher) consume(input *[16384]byte) {
 	var out chainVector
 	var chain [8]uint32
-	alg.HashF(input, 8192, a.chunks, a.flags, &a.key, &out, &chain)
-	a.stack.pushN(0, &out, 8, a.flags, &a.key)
+	for g := 0; g < 2; g++ {
+		group := (*[8192]byte)(unsafe.Pointer(&input[8192*g]))
+		alg.HashF(group, 8192, a.chunks+uint64(8*g), a.flags, &a.key, &out, &chain)
+		a.stack.pushN(0, &out, 8, a.flags, &a.key)
+	}
 }
 
 func (a *hasher) finalize(p []byte) {
@@ -78,9 +83,22 @@ func (a *hasher) finalizeDigest(d *Digest) {
 	d.chain = a.key
 	d.flags = a.flags | consts.Flag_ChunkEnd
 
+	// The kernels take eight chunks at a time, so drain whole groups until the
+	// tail fits one call.
+	for a.len > 8192 {
+		var buf chainVector
+		var chain [8]uint32
+		group := (*[8192]byte)(unsafe.Pointer(&a.buf[0]))
+		alg.HashF(group, 8192, a.chunks, a.flags, &a.key, &buf, &chain)
+		a.stack.pushN(0, &buf, 8, a.flags, &a.key)
+		a.chunks += 8
+		a.len = uint64(copy(a.buf[:], a.buf[8192:a.len]))
+	}
+
 	if a.len > 64 {
 		var buf chainVector
-		alg.HashF(&a.buf, a.len, a.chunks, a.flags, &a.key, &buf, &d.chain)
+		group := (*[8192]byte)(unsafe.Pointer(&a.buf[0]))
+		alg.HashF(group, a.len, a.chunks, a.flags, &a.key, &buf, &d.chain)
 
 		if a.len > consts.ChunkLen {
 			complete := (a.len - 1) / consts.ChunkLen
