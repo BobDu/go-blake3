@@ -5,6 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/zeebo/blake3/internal/alg"
+	"github.com/zeebo/blake3/internal/alg/hash/hash_avx512x16"
 	"github.com/zeebo/blake3/internal/consts"
 	"github.com/zeebo/blake3/internal/utils"
 )
@@ -56,11 +57,21 @@ func (a *hasher) updateString(buf string) {
 	}
 }
 
-// consume hashes sixteen chunks. The kernels are eight wide, so it runs them
-// twice; only the buffer size differs from the eight-chunk version.
+// consume hashes sixteen chunks. With AVX-512 that is one pass of the sixteen
+// wide kernel, which fills two chain vectors; otherwise the eight wide kernels
+// run twice.
 func (a *hasher) consume(input *[16384]byte) {
-	var out chainVector
 	var chain [8]uint32
+
+	if consts.HasAVX512 {
+		var lo, hi chainVector
+		hash_avx512x16.HashF16(input, 16384, a.chunks, a.flags, &a.key, &lo, &hi, &chain)
+		a.stack.pushN(0, &lo, 8, a.flags, &a.key)
+		a.stack.pushN(0, &hi, 8, a.flags, &a.key)
+		return
+	}
+
+	var out chainVector
 	for g := 0; g < 2; g++ {
 		group := (*[8192]byte)(unsafe.Pointer(&input[8192*g]))
 		alg.HashF(group, 8192, a.chunks+uint64(8*g), a.flags, &a.key, &out, &chain)
