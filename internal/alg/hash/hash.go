@@ -20,6 +20,12 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 	}
 }
 
+// HashF16 hashes sixteen chunks at once. It has no fallback, so callers must
+// check consts.HasAVX512 first.
+func HashF16(input *[16384]byte, length, counter uint64, flags uint32, key *[8]uint32, outLo, outHi *[64]uint32, chain *[8]uint32) {
+	hash_avx512.HashF16(input, length, counter, flags, key, outLo, outHi, chain)
+}
+
 func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint32, n int) {
 	if consts.HasAVX512 && n >= 2 {
 		hash_avx512.HashP(left, right, flags, key, out, n)

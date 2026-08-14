@@ -21,18 +21,20 @@ func NewCtx() (c Ctx) {
 		DATA(4*n, v)
 	}
 
+	// Sixteen lanes worth, so the same tables serve HashF and HashF16. The wide
+	// kernel reads all of it; the eight lane one reads the first half.
 	c.BlockLen = GLOBL("block_len", RODATA|NOPTR)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 16; i++ {
 		DATA(4*i, U32(64))
 	}
 
 	c.Zero = GLOBL("zero", RODATA|NOPTR)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 16; i++ {
 		DATA(4*i, U32(0))
 	}
 
 	c.Counter = GLOBL("counter", RODATA|NOPTR)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 16; i++ {
 		DATA(8*i, U64(i))
 	}
 

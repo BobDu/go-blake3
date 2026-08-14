@@ -16,6 +16,16 @@ var ymmRegs = [...]VecPhysical{
 	Y12, Y13, Y14, Y15,
 }
 
+// AVX-512 adds sixteen more vector registers. A zmm kernel keeps its state in
+// Z16-Z31, whose operations are EVEX encoded anyway, which leaves Y0-Y15 free
+// for the VEX-only shuffles the transpose needs. VEX cannot reach Y16-Y31.
+var zmmHighRegs = [...]VecPhysical{
+	Z16, Z17, Z18, Z19,
+	Z20, Z21, Z22, Z23,
+	Z24, Z25, Z26, Z27,
+	Z28, Z29, Z30, Z31,
+}
+
 //
 // used set
 //
@@ -59,6 +69,10 @@ type Alloc struct {
 	mslot  int
 	phys   []VecPhysical
 	span   int
+	nregs  int
+	mov    func(Op, Op)
+	mova   func(Op, Op)
+	xor    func(Op, Op, Op)
 }
 
 func NewAlloc(m Mem) *Alloc {
@@ -72,12 +86,31 @@ func NewAlloc(m Mem) *Alloc {
 		mslot:  -1,
 		phys:   ymmRegs[:],
 		span:   32,
+		nregs:  16,
+		mov:    func(a, b Op) { VMOVDQU(a, b) },
+		mova:   func(a, b Op) { VMOVDQA(a, b) },
+		xor:    func(a, b, o Op) { VPXOR(a, b, o) },
 	}
 }
 
+// NewAllocZMM allocates state in Z16-Z31 with 64-byte spill slots. VPXOR and the
+// unsuffixed moves are VEX only, so the zmm forms take their place.
+func NewAllocZMM(m Mem) *Alloc {
+	a := NewAlloc(m)
+	a.phys = zmmHighRegs[:]
+	a.span = 64
+	a.mov = func(x, y Op) { VMOVDQU64(x, y) }
+	a.mova = func(x, y Op) { VMOVDQA64(x, y) }
+	a.xor = func(x, y, o Op) { VPXORD(x, y, o) }
+	return a
+}
+
+// Xor emits the exclusive or that matches the register width this Alloc hands out.
+func (a *Alloc) Xor(x, y, o Op) { a.xor(x, y, o) }
+
 func (a *Alloc) stats(name, when string) {
-	fmt.Printf("// [%s] %s: %d/16 free (%d total + %d spills + %d slots)\n",
-		name, when, 16-len(a.regs), len(a.values), a.spills, a.mslot+1)
+	fmt.Printf("// [%s] %s: %d/%d free (%d total + %d spills + %d slots)\n",
+		name, when, a.nregs-len(a.regs), a.nregs, len(a.values), a.spills, a.mslot+1)
 }
 
 func (a *Alloc) newStateLive(reg int) stateLive {
@@ -94,7 +127,7 @@ func (a *Alloc) Debug(name string) func() {
 }
 
 func (a *Alloc) FreeReg() int {
-	n, ok := a.regs.alloc(16)
+	n, ok := a.regs.alloc(a.nregs)
 	if !ok {
 		return -1
 	}
@@ -122,7 +155,7 @@ func (a *Alloc) findOldestLive(except *Value) *Value {
 }
 
 func (a *Alloc) allocSpot() valueState {
-	reg, ok := a.regs.alloc(16)
+	reg, ok := a.regs.alloc(a.nregs)
 	if ok {
 		return a.newStateLive(reg)
 	}
@@ -135,7 +168,7 @@ func (a *Alloc) allocSpot() valueState {
 }
 
 func (a *Alloc) allocReg(except *Value) int {
-	reg, ok := a.regs.alloc(16)
+	reg, ok := a.regs.alloc(a.nregs)
 	if ok {
 		return reg
 	}
@@ -317,9 +350,9 @@ func (v *Value) Become(reg int) {
 
 func (v *Value) displaceTo(dest valueState) {
 	if state, ok := dest.(stateSpilled); ok && state.aligned {
-		VMOVDQA(v.Get(), dest.Op())
+		v.a.mova(v.Get(), dest.Op())
 	} else {
-		VMOVDQU(v.Get(), dest.Op())
+		v.a.mov(v.Get(), dest.Op())
 	}
 	v.setState(dest)
 }
@@ -389,7 +422,7 @@ func (v *Value) GetOp() Op {
 			return state.Mem
 		}
 		reg := v.allocReg()
-		VPBROADCASTD(state.Mem, ymmRegs[reg])
+		VPBROADCASTD(state.Mem, v.a.phys[reg])
 		v.setState(v.a.newStateLive(reg))
 	case stateEmpty:
 		reg := v.allocReg()
@@ -407,16 +440,16 @@ func (v *Value) Get() VecPhysical {
 	case stateSpilled:
 		reg := v.allocReg()
 		if state.aligned {
-			VMOVDQA(state.GetMem(), v.a.phys[reg])
+			v.a.mova(state.GetMem(), v.a.phys[reg])
 		} else {
-			VMOVDQU(state.GetMem(), v.a.phys[reg])
+			v.a.mov(state.GetMem(), v.a.phys[reg])
 		}
 		v.setState(v.a.newStateLive(reg))
 	case stateLazy:
 		reg := v.allocReg()
 		v.setState(v.a.newStateLive(reg))
 		if !state.Broadcast {
-			VMOVDQU(state.Mem, v.state.(stateLive).Register())
+			v.a.mov(state.Mem, v.state.(stateLive).Register())
 		} else {
 			VPBROADCASTD(state.Mem, v.state.(stateLive).Register())
 		}

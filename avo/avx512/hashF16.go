@@ -7,14 +7,19 @@ import (
 	. "github.com/zeebo/blake3/avo"
 )
 
-func HashF(c Ctx) {
-	TEXT("HashF", 0, `func(
-		input *[8192]byte,
+// zmmSlot is the message and spill slot size the sixteen lane kernel uses,
+// one 512 bit register per word.
+const zmmSlot = 64
+
+func HashF16(c Ctx) {
+	TEXT("HashF16", 0, `func(
+		input *[16384]byte,
 		length uint64,
 		counter uint64,
 		flags uint32,
 		key *[8]uint32,
-		out *[32]uint32,
+		outLo *[32]uint32,
+		outHi *[32]uint32,
 		chain *[8]uint32,
 	)`)
 
@@ -24,7 +29,8 @@ func HashF(c Ctx) {
 		counter = Load(Param("counter"), GP64()).(GPVirtual)
 		flags   = Load(Param("flags"), GP32()).(GPVirtual)
 		key     = Mem{Base: Load(Param("key"), GP64())}
-		out     = Mem{Base: Load(Param("out"), GP64())}
+		outLo   = Mem{Base: Load(Param("outLo"), GP64())}
+		outHi   = Mem{Base: Load(Param("outHi"), GP64())}
 		chain   = Mem{Base: Load(Param("chain"), GP64())}
 	)
 
@@ -35,21 +41,22 @@ func HashF(c Ctx) {
 
 	// All of the locals share one 32-byte aligned arena, so no vector slot straddles a cache line.
 	const (
-		arenaMsg     = 0
-		arenaSpills  = arenaMsg + 16*32
-		arenaCtrLo   = arenaSpills + roundSize
-		arenaCtrHi   = arenaCtrLo + 32
-		arenaTmp     = arenaCtrHi + 32
-		arenaFlags   = arenaTmp + 32
-		arenaCounter = arenaFlags + 8
-		arenaSize    = arenaCounter + 8
+		arenaMsg       = 0
+		arenaSpills    = arenaMsg + 16*zmmSlot
+		arenaYmmSpills = arenaSpills + 16*zmmSlot
+		arenaCtrLo     = arenaYmmSpills + 16*32
+		arenaCtrHi     = arenaCtrLo + 64
+		arenaTmp       = arenaCtrHi + 64
+		arenaFlags     = arenaTmp + 64
+		arenaCounter   = arenaFlags + 8
+		arenaSize      = arenaCounter + 8
 	)
 
 	{
 		Comment("Allocate local space and align it")
-		local := AllocLocal(arenaSize + 32)
-		LEAQ(local.Offset(31), stash)
-		ANDQ(I32(^31), stash)
+		local := AllocLocal(arenaSize + 64)
+		LEAQ(local.Offset(63), stash)
+		ANDQ(I32(^63), stash)
 	}
 
 	var (
@@ -61,8 +68,14 @@ func HashF(c Ctx) {
 		counter_mem = Mem{Base: stash}.Offset(arenaCounter)
 	)
 
-	alloc := NewAlloc(Mem{Base: stash}.Offset(arenaSpills))
+	alloc := NewAllocZMM(Mem{Base: stash}.Offset(arenaSpills))
 	defer alloc.Free()
+
+	// The transpose and the counter build stay 256-bit and use Y0-Y15, because the
+	// shuffles they need are VEX only and VEX cannot encode Y16-Y31. The zmm state
+	// lives in Z16-Z31, so the two never alias.
+	ymmAlloc := NewAlloc(Mem{Base: stash}.Offset(arenaYmmSpills))
+	defer ymmAlloc.Free()
 
 	var (
 		h_vecs    []*Value
@@ -122,7 +135,7 @@ func HashF(c Ctx) {
 
 	{
 		Comment("Build and store counter data on the stack")
-		loadCounter(c, alloc, 8, counter_mem, ctr_lo_mem, ctr_hi_mem)
+		loadCounter(c, ymmAlloc, 16, counter_mem, ctr_lo_mem, ctr_hi_mem)
 	}
 
 	{
@@ -144,7 +157,7 @@ func HashF(c Ctx) {
 
 	{
 		Comment("Load and transpose message vectors")
-		transposeMsg(c, alloc, 8, loop, input, msg)
+		transposeMsg(c, ymmAlloc, 16, loop, input, msg)
 	}
 
 	{
@@ -168,7 +181,7 @@ func HashF(c Ctx) {
 
 		for i, v := range h_vecs {
 			tmp32 := GP32()
-			VMOVDQU(v.Get(), tmp)
+			VMOVDQU64(v.Get(), tmp)
 			MOVL(tmp.Idx(chunks, 4), tmp32)
 			MOVL(tmp32, chain.Offset(4*i))
 		}
@@ -188,7 +201,7 @@ func HashF(c Ctx) {
 
 		for r := 0; r < 7; r++ {
 			Commentf("Round %d", r+1)
-			roundF(c, alloc, 8, vs, r, msg)
+			roundF(c, alloc, 16, vs, r, msg)
 		}
 	}
 
@@ -227,10 +240,17 @@ func HashF(c Ctx) {
 	Label("finalize")
 
 	{
-		Comment("Store result into out")
+		Comment("Store result into the two output halves")
+		scratch := ymmAlloc.Value()
 		for i, v := range h_vecs {
-			VMOVDQU(v.Consume(), out.Offset(32*i))
+			z := v.Get()
+			VEXTRACTI64X4(Imm(0), z, scratch.Get())
+			VMOVDQU(scratch.Get(), outLo.Offset(32*i))
+			VEXTRACTI64X4(Imm(1), z, scratch.Get())
+			VMOVDQU(scratch.Get(), outHi.Offset(32*i))
+			v.Free()
 		}
+		scratch.Free()
 	}
 
 	VZEROUPPER()

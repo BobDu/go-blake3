@@ -74,3 +74,62 @@ func TestHashP(t *testing.T) {
 		}
 	}
 }
+
+func TestHashF16(t *testing.T) {
+	if !consts.HasAVX512 {
+		t.SkipNow()
+	}
+
+	var input [16384]byte
+	var key [8]uint32
+
+	lo := (*[8192]byte)(input[:8192])
+	hi := (*[8192]byte)(input[8192:])
+
+	check := func(t *testing.T, n int) {
+		var c1, c2, c3 [8]uint32
+		var oLo, oHi, o2, o3 [64]uint32
+
+		ctr, flags := pcg.Uint64(), pcg.Uint32()
+		for i := range &key {
+			key[i] = pcg.Uint32()
+		}
+		for i := 0; i < n; i++ {
+			input[i] = byte(i+1) % 251
+		}
+
+		nLo, nHi := n, 0
+		if n > 8192 {
+			nLo, nHi = 8192, n-8192
+		}
+
+		hash_avx512.HashF16(&input, uint64(n), ctr, flags, &key, &oLo, &oHi, &c1)
+		hash_pure.HashF(lo, uint64(nLo), ctr, flags, &key, &o2, &c2)
+		hash_pure.HashF(hi, uint64(nHi), ctr+8, flags, &key, &o3, &c3)
+
+		for i := 0; (i+1)*1024 <= nLo; i++ {
+			for j := 0; j < 8; j++ {
+				assert.Equal(t, oLo[i+8*j], o2[i+8*j])
+			}
+		}
+		for i := 0; (i+1)*1024 <= nHi; i++ {
+			for j := 0; j < 8; j++ {
+				assert.Equal(t, oHi[i+8*j], o3[i+8*j])
+			}
+		}
+
+		// The chain carries the partial state of whichever chunk the input
+		// stopped inside of, so it comes from the group that chunk lands in.
+		if n%1024 != 0 {
+			if n > 8192 {
+				assert.Equal(t, c1, c3)
+			} else {
+				assert.Equal(t, c1, c2)
+			}
+		}
+	}
+
+	for n := 0; n <= 16384; n++ {
+		check(t, n)
+	}
+}

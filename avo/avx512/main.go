@@ -9,6 +9,7 @@ func main() {
 
 	HashF(c)
 	HashP(c)
+	HashF16(c)
 
 	build.Generate()
 }
