@@ -18,6 +18,10 @@ var (
 		os.Getenv("BLAKE3_DISABLE_AVX2") == "" &&
 		os.Getenv("BLAKE3_PUREGO") == ""
 
+	HasAVX = cpu.X86.HasAVX &&
+		os.Getenv("BLAKE3_DISABLE_AVX") == "" &&
+		os.Getenv("BLAKE3_PUREGO") == ""
+
 	HasSSE41 = cpu.X86.HasSSE41 &&
 		os.Getenv("BLAKE3_DISABLE_SSE41") == "" &&
 		os.Getenv("BLAKE3_PUREGO") == ""

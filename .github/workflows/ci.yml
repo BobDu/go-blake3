@@ -66,7 +66,11 @@ jobs:
       - name: Haswell, the first AVX2 part
         run: go test -exec='qemu-x86_64 -cpu Haswell' ./...
         env:
-          BLAKE3_TEST_REQUIRE_ASM: avx2,sse41
+          BLAKE3_TEST_REQUIRE_ASM: avx2,avx,sse41
+      - name: Sandy Bridge, the first AVX part
+        run: go test -exec='qemu-x86_64 -cpu SandyBridge' ./...
+        env:
+          BLAKE3_TEST_REQUIRE_ASM: avx,sse41
       - name: Penryn, the first SSE4.1 part
         run: go test -exec='qemu-x86_64 -cpu Penryn' ./...
         env:
