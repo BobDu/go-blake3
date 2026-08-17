@@ -1,3 +1,5 @@
+//go:build arm64
+
 package hash_sve2_test
 
 import (
