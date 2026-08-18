@@ -137,11 +137,15 @@ func emitHalf(a *asm, quads [4][4]int, sched []int) {
 		for i := range quads {
 			a.op("MOVWU %d(R%d), R%d", 4*sched[2*i+off], block, msg+i)
 		}
-		for _, q := range quads {
-			a.op("ADDW R%d, R%d, R%d", q[1], q[0], q[0])
-		}
+		// The message word is ready long before the second row is, so it goes
+		// in first. a + b + m is the same sum either way, but taking b last
+		// keeps only one add between the rotate that produced it and the xor
+		// that consumes this row.
 		for i, q := range quads {
 			a.op("ADDW R%d, R%d, R%d", msg+i, q[0], q[0])
+		}
+		for _, q := range quads {
+			a.op("ADDW R%d, R%d, R%d", q[1], q[0], q[0])
 		}
 		for _, q := range quads {
 			a.op("EORW R%d, R%d, R%d", q[0], q[3], q[3])
