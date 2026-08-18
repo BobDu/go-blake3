@@ -46,7 +46,6 @@ const (
 	block = 16 // the block pointer, for the message loads
 	out   = 17 // the output pointer, only touched at the end
 	chain = 19 // the chaining value pointer, reloaded for the feed forward
-	msg   = 20 // R20..R23, one message word per G call of the half round
 )
 
 func main() {
@@ -58,9 +57,11 @@ func main() {
 	a.line("#include \"textflag.h\"")
 	a.line("")
 	emitData(a)
-	emitCompress(a, "Compress", true)
+	emitCompress(a, "Compress", true, false)
 	a.line("")
-	emitCompress(a, "CompressBaseline", false)
+	emitCompress(a, "CompressBaseline", false, false)
+	a.line("")
+	emitCompress(a, "CompressHoisted", true, true)
 
 	if a.err == nil {
 		a.err = w.Flush()
@@ -86,7 +87,7 @@ func emitData(a *asm) {
 // the two adds feeding the first row goes in front; taking the second row last
 // leaves one fewer instruction between the rotate that produced that row and
 // the xor that consumes this one.
-func emitCompress(a *asm, name string, messageFirst bool) {
+func emitCompress(a *asm, name string, messageFirst, hoist bool) {
 	a.line("// func %s(chain *[8]uint32, block *[16]uint32, counter uint64, blen uint32, flags uint32, out *[16]uint32)", name)
 	a.line("TEXT ·%s(SB), NOSPLIT|NOFRAME, $0-40", name)
 	a.op("MOVD chain+0(FP), R%d", chain)
@@ -112,13 +113,16 @@ func emitCompress(a *asm, name string, messageFirst bool) {
 	for round := 0; round < 7; round++ {
 		for half := 0; half < 2; half++ {
 			a.comment("round %d, %s", round+1, []string{"columns", "diagonals"}[half])
-			emitHalf(a, halves[half], schedule[round][8*half:8*half+8], messageFirst)
+			emitHalf(a, halves[half], schedule[round][8*half:8*half+8], messageFirst, hoist)
 			a.line("")
 		}
 	}
 
 	a.comment("the two halves of the state fold together, and the second half")
 	a.comment("also folds back into the chaining value")
+	if hoist {
+		a.op("MOVD chain+0(FP), R%d", chain)
+	}
 	for i := 0; i < 8; i += 2 {
 		a.op("LDPW %d(R%d), (R24, R25)", 4*i, chain)
 		a.op("EORW R24, R%d, R24", 8+i)
@@ -136,16 +140,28 @@ func emitCompress(a *asm, name string, messageFirst bool) {
 // emitHalf writes the four G calls of one half round interleaved: every step
 // runs for all four before the next one starts, so each instruction sits four
 // away from the one it depends on.
-func emitHalf(a *asm, quads [4][4]int, sched []int, messageFirst bool) {
+// msgA and msgB name the registers a half round's first and second message
+// words go in. Loading both groups up front puts eight instructions between a
+// load and the add that consumes it, which the four registers of the tight
+// form cannot do: there the first add sits three instructions behind its load
+// and waits on the cache.
+var (
+	msgA = [4]int{20, 21, 22, 23}
+	msgB = [4]int{24, 25, 26, 19}
+)
+
+func emitHalf(a *asm, quads [4][4]int, sched []int, messageFirst, hoist bool) {
 	// mix is half of a G: the first row takes a message word and the second
 	// row, then two xor-and-rotate pairs run down the other two rows.
-	mix := func(off, rotD, rotB int) {
-		for i := range quads {
-			a.op("MOVWU %d(R%d), R%d", 4*sched[2*i+off], block, msg+i)
+	mix := func(off, rotD, rotB int, held [4]int) {
+		if !hoist {
+			for i := range quads {
+				a.op("MOVWU %d(R%d), R%d", 4*sched[2*i+off], block, held[i])
+			}
 		}
 		addMessage := func() {
 			for i, q := range quads {
-				a.op("ADDW R%d, R%d, R%d", msg+i, q[0], q[0])
+				a.op("ADDW R%d, R%d, R%d", held[i], q[0], q[0])
 			}
 		}
 		addRow := func() {
@@ -176,6 +192,20 @@ func emitHalf(a *asm, quads [4][4]int, sched []int, messageFirst bool) {
 			a.op("RORW $%d, R%d, R%d", rotB, q[1], q[1])
 		}
 	}
-	mix(0, 16, 12)
-	mix(1, 8, 7)
+	if hoist {
+		for i := range quads {
+			a.op("MOVWU %d(R%d), R%d", 4*sched[2*i], block, msgA[i])
+		}
+		for i := range quads {
+			a.op("MOVWU %d(R%d), R%d", 4*sched[2*i+1], block, msgB[i])
+		}
+	}
+	// Without hoisting each mix step loads into the same four registers, so
+	// the second group must not touch the one holding the chaining value.
+	second := msgA
+	if hoist {
+		second = msgB
+	}
+	mix(0, 16, 12, msgA)
+	mix(1, 8, 7, second)
 }

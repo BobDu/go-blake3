@@ -24,3 +24,4 @@ func benchSerial(b *testing.B, f func(*[8]uint32, *[16]uint32, uint64, uint32, u
 func BenchmarkCompress1PureGo(b *testing.B)   { benchSerial(b, compress_pure.Compress) }
 func BenchmarkCompress2Baseline(b *testing.B) { benchSerial(b, compress_arm64.CompressBaseline) }
 func BenchmarkCompress3Reassoc(b *testing.B)  { benchSerial(b, compress_arm64.Compress) }
+func BenchmarkCompress4Hoisted(b *testing.B)  { benchSerial(b, compress_arm64.CompressHoisted) }
