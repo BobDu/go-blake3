@@ -19,7 +19,7 @@ func TestCompress(t *testing.T) {
 	var block [16]uint32
 
 	for i := 0; i < 1e5; i++ {
-		var o1, o2 [16]uint32
+		var want, got, base [16]uint32
 
 		counter, blen, flags := pcg.Uint64(), pcg.Uint32(), pcg.Uint32()
 		for i := range &chain {
@@ -29,9 +29,11 @@ func TestCompress(t *testing.T) {
 			block[i] = pcg.Uint32()
 		}
 
-		compress_arm64.Compress(&chain, &block, counter, blen, flags, &o1)
-		compress_pure.Compress(&chain, &block, counter, blen, flags, &o2)
+		compress_pure.Compress(&chain, &block, counter, blen, flags, &want)
+		compress_arm64.Compress(&chain, &block, counter, blen, flags, &got)
+		compress_arm64.CompressBaseline(&chain, &block, counter, blen, flags, &base)
 
-		assert.Equal(t, o1, o2)
+		assert.Equal(t, got, want)
+		assert.Equal(t, base, want)
 	}
 }

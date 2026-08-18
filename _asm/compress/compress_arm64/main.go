@@ -58,7 +58,9 @@ func main() {
 	a.line("#include \"textflag.h\"")
 	a.line("")
 	emitData(a)
-	emitCompress(a)
+	emitCompress(a, "Compress", true)
+	a.line("")
+	emitCompress(a, "CompressBaseline", false)
 
 	if a.err == nil {
 		a.err = w.Flush()
@@ -80,9 +82,13 @@ func emitData(a *asm) {
 	a.line("")
 }
 
-func emitCompress(a *asm) {
-	a.line("// func Compress(chain *[8]uint32, block *[16]uint32, counter uint64, blen uint32, flags uint32, out *[16]uint32)")
-	a.line("TEXT ·Compress(SB), NOSPLIT|NOFRAME, $0-40")
+// emitCompress writes one copy of the function. messageFirst picks which of
+// the two adds feeding the first row goes in front; taking the second row last
+// leaves one fewer instruction between the rotate that produced that row and
+// the xor that consumes this one.
+func emitCompress(a *asm, name string, messageFirst bool) {
+	a.line("// func %s(chain *[8]uint32, block *[16]uint32, counter uint64, blen uint32, flags uint32, out *[16]uint32)", name)
+	a.line("TEXT ·%s(SB), NOSPLIT|NOFRAME, $0-40", name)
 	a.op("MOVD chain+0(FP), R%d", chain)
 	a.op("MOVD block+8(FP), R%d", block)
 	a.op("MOVD counter+16(FP), R24")
@@ -106,7 +112,7 @@ func emitCompress(a *asm) {
 	for round := 0; round < 7; round++ {
 		for half := 0; half < 2; half++ {
 			a.comment("round %d, %s", round+1, []string{"columns", "diagonals"}[half])
-			emitHalf(a, halves[half], schedule[round][8*half:8*half+8])
+			emitHalf(a, halves[half], schedule[round][8*half:8*half+8], messageFirst)
 			a.line("")
 		}
 	}
@@ -130,22 +136,29 @@ func emitCompress(a *asm) {
 // emitHalf writes the four G calls of one half round interleaved: every step
 // runs for all four before the next one starts, so each instruction sits four
 // away from the one it depends on.
-func emitHalf(a *asm, quads [4][4]int, sched []int) {
+func emitHalf(a *asm, quads [4][4]int, sched []int, messageFirst bool) {
 	// mix is half of a G: the first row takes a message word and the second
 	// row, then two xor-and-rotate pairs run down the other two rows.
 	mix := func(off, rotD, rotB int) {
 		for i := range quads {
 			a.op("MOVWU %d(R%d), R%d", 4*sched[2*i+off], block, msg+i)
 		}
-		// The message word is ready long before the second row is, so it goes
-		// in first. a + b + m is the same sum either way, but taking b last
-		// keeps only one add between the rotate that produced it and the xor
-		// that consumes this row.
-		for i, q := range quads {
-			a.op("ADDW R%d, R%d, R%d", msg+i, q[0], q[0])
+		addMessage := func() {
+			for i, q := range quads {
+				a.op("ADDW R%d, R%d, R%d", msg+i, q[0], q[0])
+			}
 		}
-		for _, q := range quads {
-			a.op("ADDW R%d, R%d, R%d", q[1], q[0], q[0])
+		addRow := func() {
+			for _, q := range quads {
+				a.op("ADDW R%d, R%d, R%d", q[1], q[0], q[0])
+			}
+		}
+		if messageFirst {
+			addMessage()
+			addRow()
+		} else {
+			addRow()
+			addMessage()
 		}
 		for _, q := range quads {
 			a.op("EORW R%d, R%d, R%d", q[0], q[3], q[3])

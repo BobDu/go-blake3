@@ -26,11 +26,16 @@ func Compress(
 }
 
 func g(a, b, c, d, mx, my uint32) (uint32, uint32, uint32, uint32) {
-	a += b + mx
+	// The message word is ready before b is, so it is added first. The sum is
+	// the same either way, but taking b last leaves one add between the rotate
+	// that produced it and the xor that consumes a.
+	a += mx
+	a += b
 	d = bits.RotateLeft32(d^a, -16)
 	c += d
 	b = bits.RotateLeft32(b^c, -12)
-	a += b + my
+	a += my
+	a += b
 	d = bits.RotateLeft32(d^a, -8)
 	c += d
 	b = bits.RotateLeft32(b^c, -7)
