@@ -67,7 +67,7 @@ done
 
 # ── 闸门 3:padded 必须真挪了位、且语义未变(只允许重定位差异)
 python3 - <<'PYEOF'
-import subprocess,sys
+import subprocess,sys,re
 def info(b):
     nm=subprocess.run(['go','tool','nm',b],capture_output=True,text=True).stdout
     a=[l.split()[0] for l in nm.split('\n') if l.rstrip().endswith('compress_pure.Compress')]
@@ -87,11 +87,15 @@ for sfx in ('def','pure'):
     ok_addr=bool(ab and ap and ab!=ap); ok_cnt=len(ib)==len(ip) and len(ib)>0
     ok_mnem=[x.split()[0] for x in ib]==[y.split()[0] for y in ip]
     diffs=[(x,y) for x,y in zip(ib,ip) if x!=y]
-    # 函数挪位后跳转目标/PC 相对偏移必然变(arm64 印相对、amd64 印绝对),只允许这类差异
-    reloc=all(x.split()[0].startswith(('J','CALL','B','TB','CB','ADRP','LDR')) or '(IP)' in x or '(PC)' in x
-              for x,y in diffs)
+    # 函数挪位会改变跳转目标与 PC 相对寻址的数值编码(amd64 印绝对地址;arm64 是
+    # ADRP+ADD 两条一组,跨页时页号变一页、页内偏移补回填充量)。不按助记符白名单
+    # 放行 —— 那要求预知每个平台的寻址惯用法,已两次漏判。改为规范化:把所有数字
+    # 字面量掩掉后必须逐条相同,即「唯一的差别是数值」= 纯重定位。寄存器分配变化、
+    # 指令替换都会在这一步暴露。
+    mask=lambda t: re.sub(r'(?<![A-Za-z0-9])(0x[0-9a-f]+|\d+)', 'N', t)
+    reloc=[mask(x) for x in ib]==[mask(y) for y in ip]
     ok_pr=ir!=ib
-    print("  [%s] base@0x%s(%d) padded@0x%s(%d) pr(%d)  挪位:%s 条数:%s 助记符:%s 差异仅重定位:%s(%d 行) pr有改动:%s"
+    print("  [%s] base@0x%s(%d) padded@0x%s(%d) pr(%d)  挪位:%s 条数:%s 助记符:%s 差异仅数值(重定位):%s(%d 行) pr有改动:%s"
           %(sfx,ab,len(ib),ap,len(ip),len(ir),
             "OK" if ok_addr else "FAIL","OK" if ok_cnt else "FAIL","OK" if ok_mnem else "FAIL",
             "OK" if reloc else "FAIL",len(diffs),"OK" if ok_pr else "FAIL"))
