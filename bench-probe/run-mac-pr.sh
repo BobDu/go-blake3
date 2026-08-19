@@ -78,7 +78,7 @@ def info(b):
         fs=[x.strip() for x in l.split('\t') if x.strip()]
         if len(fs)>=4: ins.append(fs[3])
     return (a[0] if a else None), ins
-bad=0
+bad=0; hard=0
 for sfx in ('def','pure'):
     # 脚本已 cd 到 WORK,直接用相对路径,不依赖环境变量
     ab,ib=info('out/base.%s.test'%sfx)
@@ -100,10 +100,12 @@ for sfx in ('def','pure'):
             "OK" if ok_addr else "FAIL","OK" if ok_cnt else "FAIL","OK" if ok_mnem else "FAIL",
             "OK" if reloc else "FAIL",len(diffs),"OK" if ok_pr else "FAIL"))
     for x,y in diffs[:4]: print("        base: %-34s padded: %s"%(x,y))
-    if not(ok_addr and ok_cnt and ok_mnem and reloc and ok_pr): bad=1
-sys.exit(bad)
+    if not(ok_addr and ok_cnt and ok_mnem and reloc): bad=1
+    if not ok_pr: hard=1
+if bad: print("  ⚠️  padded 对照臂校验未通过 —— 只影响能不能引用布局地板,base/pr 的数照跑")
+sys.exit(hard)
 PYEOF
-echo "  布局对照臂有效 ✓"
+echo "  (以上仅校验 padded 辅助臂;base/pr 的测量不依赖它)"
 
 S='BLAKE3/Entire/(0001_block|0004_block|0016_block|0002_kib|0004_kib|0064_kib|1024_kib)$'
 NARM=$( echo $ARMS | wc -w | tr -d ' ' )
