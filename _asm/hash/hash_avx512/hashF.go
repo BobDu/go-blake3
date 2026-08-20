@@ -387,7 +387,7 @@ func HashF(c Ctx) {
 		RET()
 	}
 
-	Label("dual_stream")
+	// The dispatch above falls through into the dual-stream path.
 	emitPath("d", []stream{s1, s2})
 
 	Label("single_stream")

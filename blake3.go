@@ -38,6 +38,15 @@ func (a *hasher) updateString(buf string) {
 	var input *[8192]byte
 
 	for len(buf) > 0 {
+		// Sixteen chunks handed over at once are already contiguous, so the
+		// widest kernel can read them in place and never involve the buffer.
+		if consts.HasAVX512 && a.len == 0 && len(buf) > 16384 {
+			a.consume16((*[16384]byte)(unsafe.Slice(unsafe.StringData(buf), len(buf))))
+			buf = buf[16384:]
+			a.chunks += 16
+			continue
+		}
+
 		if a.len == 0 && len(buf) > 8192 {
 			input = (*[8192]byte)(unsafe.Slice(unsafe.StringData(buf), len(buf)))
 			buf = buf[8192:]
@@ -61,6 +70,14 @@ func (a *hasher) consume(input *[8192]byte) {
 	var chain [8]uint32
 	alg.HashF(input, 8192, a.chunks, a.flags, &a.key, &out, &chain)
 	a.stack.pushN(0, &out, 8, a.flags, &a.key)
+}
+
+func (a *hasher) consume16(input *[16384]byte) {
+	var lo, hi chainVector
+	var chain [8]uint32
+	alg.HashF16(input, 16384, a.chunks, a.flags, &a.key, &lo, &hi, &chain)
+	a.stack.pushN(0, &lo, 8, a.flags, &a.key)
+	a.stack.pushN(0, &hi, 8, a.flags, &a.key)
 }
 
 func (a *hasher) finalize(p []byte) {

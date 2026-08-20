@@ -9,6 +9,10 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 	hash.HashF(input, length, counter, flags, key, out, chain)
 }
 
+func HashF16(input *[16384]byte, length, counter uint64, flags uint32, key *[8]uint32, outLo, outHi *[64]uint32, chain *[8]uint32) {
+	hash.HashF16(input, length, counter, flags, key, outLo, outHi, chain)
+}
+
 func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint32, n int) {
 	hash.HashP(left, right, flags, key, out, n)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	. "github.com/mmcloughlin/avo/build"
 	. "github.com/mmcloughlin/avo/operand"
+	. "github.com/mmcloughlin/avo/reg"
 	. "github.com/zeebo/blake3/_asm"
 )
 
@@ -116,7 +117,7 @@ func add(alloc *Alloc, a, b *Value) *Value {
 
 func xor(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
-	VPXOR(a.Get(), b.Consume(), o.Get())
+	alloc.Xor(a.Get(), b.Consume(), o.Get())
 	return o
 }
 
@@ -124,11 +125,11 @@ func xorb(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
 	switch {
 	case a.HasReg():
-		VPXOR(b.ConsumeOp(), a.Consume(), o.Get())
+		alloc.Xor(b.ConsumeOp(), a.Consume(), o.Get())
 	case b.HasReg():
-		VPXOR(a.ConsumeOp(), b.Consume(), o.Get())
+		alloc.Xor(a.ConsumeOp(), b.Consume(), o.Get())
 	default:
-		VPXOR(a.ConsumeOp(), b.Consume(), o.Get())
+		alloc.Xor(a.ConsumeOp(), b.Consume(), o.Get())
 	}
 	return o
 }
@@ -143,4 +144,99 @@ func rotNs(alloc *Alloc, n int, as []*Value) {
 	for i, a := range as {
 		as[i] = rotN(alloc, n, a)
 	}
+}
+
+func transpose(c Ctx, alloc *Alloc, vs []*Value) {
+	L01, H01, L23, H23 := alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+	L45, H45, L67, H67 := alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+
+	VPUNPCKLDQ(vs[1].GetOp(), vs[0].Get(), L01.Get())
+	VPUNPCKHDQ(vs[1].ConsumeOp(), vs[0].Consume(), H01.Get())
+	VPUNPCKLDQ(vs[3].GetOp(), vs[2].Get(), L23.Get())
+	VPUNPCKHDQ(vs[3].ConsumeOp(), vs[2].Consume(), H23.Get())
+	VPUNPCKLDQ(vs[5].GetOp(), vs[4].Get(), L45.Get())
+	VPUNPCKHDQ(vs[5].ConsumeOp(), vs[4].Consume(), H45.Get())
+	VPUNPCKLDQ(vs[7].GetOp(), vs[6].Get(), L67.Get())
+	VPUNPCKHDQ(vs[7].ConsumeOp(), vs[6].Consume(), H67.Get())
+
+	LL0123, HL0123, LH0123, HH0123 := alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+	LL4567, HL4567, LH4567, HH4567 := alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+
+	VPUNPCKLQDQ(L23.GetOp(), L01.Get(), LL0123.Get())
+	VPUNPCKHQDQ(L23.ConsumeOp(), L01.Consume(), HL0123.Get())
+	VPUNPCKLQDQ(H23.GetOp(), H01.Get(), LH0123.Get())
+	VPUNPCKHQDQ(H23.ConsumeOp(), H01.Consume(), HH0123.Get())
+	VPUNPCKLQDQ(L67.GetOp(), L45.Get(), LL4567.Get())
+	VPUNPCKHQDQ(L67.ConsumeOp(), L45.Consume(), HL4567.Get())
+	VPUNPCKLQDQ(H67.GetOp(), H45.Get(), LH4567.Get())
+	VPUNPCKHQDQ(H67.ConsumeOp(), H45.Consume(), HH4567.Get())
+
+	vs[0], vs[1], vs[2], vs[3] = alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+	vs[4], vs[5], vs[6], vs[7] = alloc.Value(), alloc.Value(), alloc.Value(), alloc.Value()
+
+	VINSERTI128(Imm(1), LL4567.Get().AsX(), LL0123.Get(), vs[0].Get())
+	VPERM2I128(Imm(49), LL4567.Consume(), LL0123.Consume(), vs[4].Get())
+	VINSERTI128(Imm(1), HL4567.Get().AsX(), HL0123.Get(), vs[1].Get())
+	VPERM2I128(Imm(49), HL4567.Consume(), HL0123.Consume(), vs[5].Get())
+	VINSERTI128(Imm(1), LH4567.Get().AsX(), LH0123.Get(), vs[2].Get())
+	VPERM2I128(Imm(49), LH4567.Consume(), LH0123.Consume(), vs[6].Get())
+	VINSERTI128(Imm(1), HH4567.Get().AsX(), HH0123.Get(), vs[3].Get())
+	VPERM2I128(Imm(49), HH4567.Consume(), HH0123.Consume(), vs[7].Get())
+}
+
+// transposeMsg gathers word w of degree chunks into the 4*degree byte slot at
+// msg+4*degree*w. The eight lane transpose is reused once per group of eight
+// chunks, and group g lands in the 32 byte half at +32*g.
+func transposeMsg(c Ctx, alloc *Alloc, degree int, block GPVirtual, input, msg Mem) {
+	slot := 4 * degree
+	for j := 0; j < 2; j++ {
+		for g := 0; g < degree/8; g++ {
+			vs := alloc.Values(8)
+			for i, v := range vs {
+				VMOVDQU(input.Offset(1024*(8*g+i)+32*j).Idx(block, 1), v.Get())
+			}
+			transpose(c, alloc, vs)
+			for i, v := range vs {
+				VMOVDQU(v.Consume(), msg.Offset(slot*(8*j+i)+32*g))
+			}
+		}
+	}
+}
+
+// loadCounter splits degree 64 bit counters into a low and a high 32 bit lane
+// vector. The eight lane sequence is reused once per group, so the counter never
+// needs integer operations wider than 256 bits.
+func loadCounter(c Ctx, alloc *Alloc, degree int, mem, lo_mem, hi_mem Mem) {
+	for g := 0; g < degree/8; g++ {
+		base := 64 * g // eight counters per group, eight bytes each
+
+		ctr0, ctr1 := alloc.Value(), alloc.Value()
+		VPBROADCASTQ(mem, ctr0.Get())
+		VPADDQ(c.Counter.Offset(base), ctr0.Get(), ctr0.Get())
+		VPBROADCASTQ(mem, ctr1.Get())
+		VPADDQ(c.Counter.Offset(base+32), ctr1.Get(), ctr1.Get())
+
+		L, H := alloc.Value(), alloc.Value()
+		VPUNPCKLDQ(ctr1.GetOp(), ctr0.Get(), L.Get())
+		VPUNPCKHDQ(ctr1.ConsumeOp(), ctr0.Consume(), H.Get())
+
+		LLH, HLH := alloc.Value(), alloc.Value()
+		VPUNPCKLDQ(H.GetOp(), L.Get(), LLH.Get())
+		VPUNPCKHDQ(H.ConsumeOp(), L.Consume(), HLH.Get())
+
+		ctrl, ctrh := alloc.Value(), alloc.Value()
+		VPERMQ(U8(0b11_01_10_00), LLH.ConsumeOp(), ctrl.Get())
+		VPERMQ(U8(0b11_01_10_00), HLH.ConsumeOp(), ctrh.Get())
+
+		VMOVDQU(ctrl.Consume(), lo_mem.Offset(32*g))
+		VMOVDQU(ctrh.Consume(), hi_mem.Offset(32*g))
+	}
+}
+
+// roundF runs a round against the message arena, whose slots are 4*degree bytes
+// wide because each holds one word for every chunk in flight.
+func roundF(c Ctx, alloc *Alloc, degree int, vs []*Value, r int, mp Mem) {
+	round(c, alloc, vs, r, func(n int) Mem {
+		return mp.Offset(n * 4 * degree)
+	})
 }
