@@ -9,7 +9,6 @@ type Ctx struct {
 	IV       Mem
 	BlockLen Mem
 	Zero     Mem
-	Counter  Mem
 }
 
 func NewCtx() (c Ctx) {
@@ -29,11 +28,6 @@ func NewCtx() (c Ctx) {
 	c.Zero = GLOBL("zero", RODATA|NOPTR)
 	for i := 0; i < 8; i++ {
 		DATA(4*i, U32(0))
-	}
-
-	c.Counter = GLOBL("counter", RODATA|NOPTR)
-	for i := 0; i < 8; i++ {
-		DATA(8*i, U64(i))
 	}
 
 	return c
