@@ -12,3 +12,9 @@ func HashF(input *[8192]byte, length, counter uint64, flags uint32, key *[8]uint
 func HashP(left, right *[64]uint32, flags uint32, key *[8]uint32, out *[64]uint32, n int) {
 	hash_pure.HashP(left, right, flags, key, out, n)
 }
+
+func HashF4(input *[4096]byte, length, counter uint64, flags uint32, key *[8]uint32, out *[64]uint32, chain *[8]uint32) {
+	var buf [8192]byte
+	copy(buf[:], input[:])
+	hash_pure.HashF(&buf, length, counter, flags, key, out, chain)
+}

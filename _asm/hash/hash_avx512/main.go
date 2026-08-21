@@ -8,6 +8,7 @@ func main() {
 	c := NewCtx()
 
 	HashF(c)
+	HashF4(c)
 	HashP(c)
 
 	build.Generate()
