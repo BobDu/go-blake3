@@ -139,6 +139,507 @@ TEXT ·HashF(SB), $688-56
 	ANDQ $0x000003c0, R10
 
 skip_compute:
+	// Two chunks or fewer do not need all eight lanes
+	CMPQ R9, $0x02
+	JAE  eight_lane
+
+	// Build row 3 for the first, middle, and last block of a chunk
+	LEAQ    (DX), CX
+	MOVL    CX, (R11)
+	SHRQ    $0x20, CX
+	MOVL    CX, 4(R11)
+	MOVL    $0x00000040, 8(R11)
+	LEAQ    1(DX), CX
+	MOVL    CX, 16(R11)
+	SHRQ    $0x20, CX
+	MOVL    CX, 20(R11)
+	MOVL    $0x00000040, 24(R11)
+	VMOVDQU (R11), Y12
+	VMOVDQU Y12, 32(R11)
+	VMOVDQU Y12, 64(R11)
+	MOVL    BX, CX
+	ORL     $0x01, CX
+	MOVL    CX, 12(R11)
+	MOVL    CX, 28(R11)
+	MOVL    BX, 44(R11)
+	MOVL    BX, 60(R11)
+	MOVL    BX, CX
+	ORL     $0x02, CX
+	MOVL    CX, 76(R11)
+	MOVL    CX, 92(R11)
+
+	// Load the rotate tables and the key
+	VMOVDQU        rot16_shuf<>+0(SB), Y13
+	VMOVDQU        rot8_shuf<>+0(SB), Y14
+	VBROADCASTI128 (SI), Y0
+	VBROADCASTI128 16(SI), Y1
+	XORQ           CX, CX
+	LEAQ           (R11), DX
+
+mix_loop:
+	// Include end flags if last block
+	CMPQ CX, $0x000003c0
+	JNE  mix_flags_done
+	LEAQ 64(R11), DX
+
+mix_flags_done:
+	// Load and group the message words of both chunks
+	VMOVDQU     (AX)(CX*1), X4
+	VINSERTI128 $0x01, 1024(AX)(CX*1), Y4, Y4
+	VMOVDQU     16(AX)(CX*1), X5
+	VINSERTI128 $0x01, 1040(AX)(CX*1), Y5, Y5
+	VMOVDQU     32(AX)(CX*1), X6
+	VINSERTI128 $0x01, 1056(AX)(CX*1), Y6, Y6
+	VMOVDQU     48(AX)(CX*1), X7
+	VINSERTI128 $0x01, 1072(AX)(CX*1), Y7, Y7
+
+	// Build rows 2 and 3 from the IV, counters, and flags
+	VBROADCASTI128 iv<>+0(SB), Y2
+	VMOVDQU        (DX), Y3
+
+	// Save the chaining value before the partial chunk boundary
+	CMPQ    CX, R10
+	JNE     mix_chain_done
+	VMOVDQU Y0, 96(R11)
+	VMOVDQU Y1, 128(R11)
+	MOVQ    R9, DX
+	SHLQ    $0x04, DX
+	MOVL    96(R11)(DX*1), BX
+	MOVL    BX, (R8)
+	MOVL    128(R11)(DX*1), BX
+	MOVL    BX, 16(R8)
+	MOVL    100(R11)(DX*1), BX
+	MOVL    BX, 4(R8)
+	MOVL    132(R11)(DX*1), BX
+	MOVL    BX, 20(R8)
+	MOVL    104(R11)(DX*1), BX
+	MOVL    BX, 8(R8)
+	MOVL    136(R11)(DX*1), BX
+	MOVL    BX, 24(R8)
+	MOVL    108(R11)(DX*1), BX
+	MOVL    BX, 12(R8)
+	MOVL    140(R11)(DX*1), BX
+	MOVL    BX, 28(R8)
+
+mix_chain_done:
+	// Round 1
+	VSHUFPS $0x88, Y5, Y4, Y8
+	VSHUFPS $0xdd, Y5, Y4, Y9
+	VSHUFPS $0x88, Y7, Y6, Y10
+	VSHUFPS $0x93, Y10, Y10, Y10
+	VSHUFPS $0xdd, Y7, Y6, Y11
+	VSHUFPS $0x93, Y11, Y11, Y11
+	VPADDD  Y8, Y0, Y0
+	VPADDD  Y1, Y0, Y0
+	VPXOR   Y0, Y3, Y3
+	VPSHUFB Y13, Y3, Y3
+	VPADDD  Y3, Y2, Y2
+	VPXOR   Y2, Y1, Y1
+	VPSRLD  $0x0c, Y1, Y12
+	VPSLLD  $0x14, Y1, Y1
+	VPOR    Y12, Y1, Y1
+	VPADDD  Y9, Y0, Y0
+	VPADDD  Y1, Y0, Y0
+	VPXOR   Y0, Y3, Y3
+	VPSHUFB Y14, Y3, Y3
+	VPADDD  Y3, Y2, Y2
+	VPXOR   Y2, Y1, Y1
+	VPSRLD  $0x07, Y1, Y12
+	VPSLLD  $0x19, Y1, Y1
+	VPOR    Y12, Y1, Y1
+	VPSHUFD $0x93, Y0, Y0
+	VPSHUFD $0x4e, Y3, Y3
+	VPSHUFD $0x39, Y2, Y2
+	VPADDD  Y10, Y0, Y0
+	VPADDD  Y1, Y0, Y0
+	VPXOR   Y0, Y3, Y3
+	VPSHUFB Y13, Y3, Y3
+	VPADDD  Y3, Y2, Y2
+	VPXOR   Y2, Y1, Y1
+	VPSRLD  $0x0c, Y1, Y12
+	VPSLLD  $0x14, Y1, Y1
+	VPOR    Y12, Y1, Y1
+	VPADDD  Y11, Y0, Y0
+	VPADDD  Y1, Y0, Y0
+	VPXOR   Y0, Y3, Y3
+	VPSHUFB Y14, Y3, Y3
+	VPADDD  Y3, Y2, Y2
+	VPXOR   Y2, Y1, Y1
+	VPSRLD  $0x07, Y1, Y12
+	VPSLLD  $0x19, Y1, Y1
+	VPOR    Y12, Y1, Y1
+	VPSHUFD $0x39, Y0, Y0
+	VPSHUFD $0x4e, Y3, Y3
+	VPSHUFD $0x93, Y2, Y2
+
+	// Round 2
+	VSHUFPS    $0xd6, Y9, Y8, Y4
+	VSHUFPS    $0x39, Y4, Y4, Y4
+	VSHUFPS    $0xfa, Y11, Y10, Y5
+	VPSHUFD    $0x0f, Y8, Y12
+	VPBLENDD   $0x55, Y12, Y5, Y5
+	VPUNPCKLDQ Y9, Y11, Y6
+	VPBLENDD   $0x88, Y10, Y6, Y6
+	VSHUFPS    $0xb4, Y6, Y6, Y6
+	VPUNPCKHDQ Y11, Y9, Y12
+	VPUNPCKLDQ Y12, Y10, Y7
+	VSHUFPS    $0x1e, Y7, Y7, Y7
+	VPADDD     Y4, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y5, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y6, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y7, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Round 3
+	VSHUFPS    $0xd6, Y5, Y4, Y8
+	VSHUFPS    $0x39, Y8, Y8, Y8
+	VSHUFPS    $0xfa, Y7, Y6, Y9
+	VPSHUFD    $0x0f, Y4, Y12
+	VPBLENDD   $0x55, Y12, Y9, Y9
+	VPUNPCKLDQ Y5, Y7, Y10
+	VPBLENDD   $0x88, Y6, Y10, Y10
+	VSHUFPS    $0xb4, Y10, Y10, Y10
+	VPUNPCKHDQ Y7, Y5, Y12
+	VPUNPCKLDQ Y12, Y6, Y11
+	VSHUFPS    $0x1e, Y11, Y11, Y11
+	VPADDD     Y8, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y9, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y10, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y11, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Round 4
+	VSHUFPS    $0xd6, Y9, Y8, Y4
+	VSHUFPS    $0x39, Y4, Y4, Y4
+	VSHUFPS    $0xfa, Y11, Y10, Y5
+	VPSHUFD    $0x0f, Y8, Y12
+	VPBLENDD   $0x55, Y12, Y5, Y5
+	VPUNPCKLDQ Y9, Y11, Y6
+	VPBLENDD   $0x88, Y10, Y6, Y6
+	VSHUFPS    $0xb4, Y6, Y6, Y6
+	VPUNPCKHDQ Y11, Y9, Y12
+	VPUNPCKLDQ Y12, Y10, Y7
+	VSHUFPS    $0x1e, Y7, Y7, Y7
+	VPADDD     Y4, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y5, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y6, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y7, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Round 5
+	VSHUFPS    $0xd6, Y5, Y4, Y8
+	VSHUFPS    $0x39, Y8, Y8, Y8
+	VSHUFPS    $0xfa, Y7, Y6, Y9
+	VPSHUFD    $0x0f, Y4, Y12
+	VPBLENDD   $0x55, Y12, Y9, Y9
+	VPUNPCKLDQ Y5, Y7, Y10
+	VPBLENDD   $0x88, Y6, Y10, Y10
+	VSHUFPS    $0xb4, Y10, Y10, Y10
+	VPUNPCKHDQ Y7, Y5, Y12
+	VPUNPCKLDQ Y12, Y6, Y11
+	VSHUFPS    $0x1e, Y11, Y11, Y11
+	VPADDD     Y8, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y9, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y10, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y11, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Round 6
+	VSHUFPS    $0xd6, Y9, Y8, Y4
+	VSHUFPS    $0x39, Y4, Y4, Y4
+	VSHUFPS    $0xfa, Y11, Y10, Y5
+	VPSHUFD    $0x0f, Y8, Y12
+	VPBLENDD   $0x55, Y12, Y5, Y5
+	VPUNPCKLDQ Y9, Y11, Y6
+	VPBLENDD   $0x88, Y10, Y6, Y6
+	VSHUFPS    $0xb4, Y6, Y6, Y6
+	VPUNPCKHDQ Y11, Y9, Y12
+	VPUNPCKLDQ Y12, Y10, Y7
+	VSHUFPS    $0x1e, Y7, Y7, Y7
+	VPADDD     Y4, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y5, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y6, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y7, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Round 7
+	VSHUFPS    $0xd6, Y5, Y4, Y8
+	VSHUFPS    $0x39, Y8, Y8, Y8
+	VSHUFPS    $0xfa, Y7, Y6, Y9
+	VPSHUFD    $0x0f, Y4, Y12
+	VPBLENDD   $0x55, Y12, Y9, Y9
+	VPUNPCKLDQ Y5, Y7, Y10
+	VPBLENDD   $0x88, Y6, Y10, Y10
+	VSHUFPS    $0xb4, Y10, Y10, Y10
+	VPUNPCKHDQ Y7, Y5, Y12
+	VPUNPCKLDQ Y12, Y6, Y11
+	VSHUFPS    $0x1e, Y11, Y11, Y11
+	VPADDD     Y8, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y9, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x93, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x39, Y2, Y2
+	VPADDD     Y10, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y13, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x0c, Y1, Y12
+	VPSLLD     $0x14, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPADDD     Y11, Y0, Y0
+	VPADDD     Y1, Y0, Y0
+	VPXOR      Y0, Y3, Y3
+	VPSHUFB    Y14, Y3, Y3
+	VPADDD     Y3, Y2, Y2
+	VPXOR      Y2, Y1, Y1
+	VPSRLD     $0x07, Y1, Y12
+	VPSLLD     $0x19, Y1, Y1
+	VPOR       Y12, Y1, Y1
+	VPSHUFD    $0x39, Y0, Y0
+	VPSHUFD    $0x4e, Y3, Y3
+	VPSHUFD    $0x93, Y2, Y2
+
+	// Compute the chaining values for the next block
+	VPXOR Y2, Y0, Y0
+	VPXOR Y3, Y1, Y1
+
+	// If we have zero complete chunks, we're done
+	CMPQ R9, $0x00
+	JNE  mix_loop_trailer
+	CMPQ R10, CX
+	JEQ  mix_finalize
+
+mix_loop_trailer:
+	// Increment, use the middle-block flags, and loop
+	CMPQ CX, $0x000003c0
+	JEQ  mix_finalize
+	ADDQ $0x40, CX
+	LEAQ 32(R11), DX
+	JMP  mix_loop
+
+mix_finalize:
+	// Transpose the chaining values into the word-major out layout
+	VEXTRACTI128 $0x01, Y0, X12
+	VPUNPCKLDQ   X12, X0, X4
+	VPUNPCKHDQ   X12, X0, X5
+	VMOVQ        X4, (DI)
+	VPEXTRQ      $0x01, X4, 32(DI)
+	VMOVQ        X5, 64(DI)
+	VPEXTRQ      $0x01, X5, 96(DI)
+	VEXTRACTI128 $0x01, Y1, X12
+	VPUNPCKLDQ   X12, X1, X4
+	VPUNPCKHDQ   X12, X1, X5
+	VMOVQ        X4, 128(DI)
+	VPEXTRQ      $0x01, X4, 160(DI)
+	VMOVQ        X5, 192(DI)
+	VPEXTRQ      $0x01, X5, 224(DI)
+	VZEROUPPER
+	RET
+
+eight_lane:
 	// Load some params into the stack (avo improvment?)
 	MOVL BX, 640(R11)
 	MOVQ DX, 648(R11)

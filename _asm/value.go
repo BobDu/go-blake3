@@ -9,7 +9,7 @@ import (
 	. "github.com/mmcloughlin/avo/reg"
 )
 
-var ymmRegs = [...]VecPhysical{
+var YmmRegs = [...]VecPhysical{
 	Y0, Y1, Y2, Y3,
 	Y4, Y5, Y6, Y7,
 	Y8, Y9, Y10, Y11,
@@ -81,7 +81,7 @@ func NewAlloc(m Mem) *Alloc {
 		ctr:    0,
 		spills: 0,
 		mslot:  -1,
-		phys:   ymmRegs[:],
+		phys:   YmmRegs[:],
 		span:   32,
 	}
 }
@@ -399,7 +399,7 @@ func (v *Value) GetOp() Op {
 			return state.Mem
 		}
 		reg := v.allocReg()
-		VPBROADCASTD(state.Mem, ymmRegs[reg])
+		VPBROADCASTD(state.Mem, YmmRegs[reg])
 		v.setState(v.a.newStateLive(reg))
 	case stateEmpty:
 		reg := v.allocReg()
