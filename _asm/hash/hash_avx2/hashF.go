@@ -106,8 +106,8 @@ func HashF(c Ctx) {
 	Label("skip_compute")
 
 	{
-		Comment("Two chunks or fewer do not need all eight lanes")
-		CMPQ(chunks, U8(2))
+		Comment("Four chunks or fewer do not need all eight lanes")
+		CMPQ(chunks, U8(4))
 		JAE(LabelRef("eight_lane"))
 		emitMixedAxis(c, input, key, out, chain, Mem{Base: stash}, counter, flags, chunks, blocks)
 	}
@@ -259,6 +259,11 @@ func roundF(c Ctx, alloc *Alloc, vs []*Value, r int, mp Mem) {
 func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVirtual, chunks, blocks GPVirtual) {
 	loop := GP64()
 	row3 := GP64()
+	batch := GP64()
+	batches := GP64()
+	msgbase := GP64()
+	outbase := GP64()
+	chainbatch := GP64()
 
 	// This path reuses the front of the arena the eight lane one transposes its
 	// messages into, since only one of the two ever runs.
@@ -270,11 +275,36 @@ func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVi
 	)
 
 	{
+		Comment("A batch covers two chunks, so the last one holds the partial chunk")
+		MOVQ(chunks, batches)
+		SHRQ(U8(1), batches)
+		XORQ(batch, batch)
+		MOVQ(chunks, chainbatch)
+		SHRQ(U8(1), chainbatch)
+	}
+
+	Label("mix_batch")
+
+	{
+		Comment("This batch starts at chunk 2*batch")
+		MOVQ(batch, msgbase)
+		SHLQ(U8(11), msgbase)
+		ADDQ(Load(Param("input"), GP64()), msgbase)
+		MOVQ(batch, outbase)
+		SHLQ(U8(3), outbase)
+		ADDQ(Load(Param("out"), GP64()), outbase)
+	}
+
+	{
 		Comment("Build row 3 for the first, middle, and last block of a chunk")
 		ctr := GP64()
 		bflags := GP32()
+		bc := GP64()
+		MOVQ(batch, bc)
+		SHLQ(U8(1), bc)
+		ADDQ(counter, bc)
 		for i := 0; i < 2; i++ {
-			LEAQ(Mem{Base: counter, Disp: i}, ctr)
+			LEAQ(Mem{Base: bc, Disp: i}, ctr)
 			MOVL(ctr.As32(), arena.Offset(mixStart+16*i))
 			SHRQ(U8(32), ctr)
 			MOVL(ctr.As32(), arena.Offset(mixStart+16*i+4))
@@ -324,8 +354,8 @@ func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVi
 		Comment("Load and group the message words of both chunks")
 		for k := 0; k < 4; k++ {
 			z := ypoolA + k
-			VMOVDQU(input.Idx(loop, 1).Offset(16*k), ymmAll[z].AsX())
-			VINSERTI128(U8(1), input.Idx(loop, 1).Offset(1024+16*k), ymmAll[z], ymmAll[z])
+			VMOVDQU(Mem{Base: msgbase}.Idx(loop, 1).Offset(16*k), ymmAll[z].AsX())
+			VINSERTI128(U8(1), Mem{Base: msgbase}.Idx(loop, 1).Offset(1024+16*k), ymmAll[z], ymmAll[z])
 		}
 	}
 
@@ -337,6 +367,8 @@ func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVi
 
 	{
 		Comment("Save the chaining value before the partial chunk boundary")
+		CMPQ(batch, chainbatch)
+		JNE(LabelRef("mix_chain_done"))
 		CMPQ(loop, blocks)
 		JNE(LabelRef("mix_chain_done"))
 
@@ -345,6 +377,7 @@ func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVi
 		VMOVDQU(ymmAll[yrows], arena.Offset(mixChain))
 		VMOVDQU(ymmAll[yrows+1], arena.Offset(mixChain+32))
 		MOVQ(chunks, lane)
+		ANDQ(U8(1), lane)
 		SHLQ(U8(4), lane)
 		for i := 0; i < 4; i++ {
 			MOVL(arena.Offset(mixChain+4*i).Idx(lane, 1), tmp32)
@@ -419,12 +452,22 @@ func emitMixedAxis(c Ctx, input, key, out, chain, arena Mem, counter, flags GPVi
 			VEXTRACTI128(U8(1), ymmAll[r], ymmAll[ytmp].AsX())
 			VPUNPCKLDQ(ymmAll[ytmp].AsX(), ymmAll[r].AsX(), ymmAll[ypoolA].AsX())
 			VPUNPCKHDQ(ymmAll[ytmp].AsX(), ymmAll[r].AsX(), ymmAll[ypoolA+1].AsX())
-			VMOVQ(ymmAll[ypoolA].AsX(), out.Offset(32*(4*i+0)))
-			VPEXTRQ(U8(1), ymmAll[ypoolA].AsX(), out.Offset(32*(4*i+1)))
-			VMOVQ(ymmAll[ypoolA+1].AsX(), out.Offset(32*(4*i+2)))
-			VPEXTRQ(U8(1), ymmAll[ypoolA+1].AsX(), out.Offset(32*(4*i+3)))
+			VMOVQ(ymmAll[ypoolA].AsX(), Mem{Base: outbase}.Offset(32*(4*i+0)))
+			VPEXTRQ(U8(1), ymmAll[ypoolA].AsX(), Mem{Base: outbase}.Offset(32*(4*i+1)))
+			VMOVQ(ymmAll[ypoolA+1].AsX(), Mem{Base: outbase}.Offset(32*(4*i+2)))
+			VPEXTRQ(U8(1), ymmAll[ypoolA+1].AsX(), Mem{Base: outbase}.Offset(32*(4*i+3)))
 		}
 	}
+
+	{
+		Comment("Advance to the next batch of two chunks")
+		CMPQ(batch, batches)
+		JEQ(LabelRef("mix_done"))
+		ADDQ(U8(1), batch)
+		JMP(LabelRef("mix_batch"))
+	}
+
+	Label("mix_done")
 
 	VZEROUPPER()
 	RET()

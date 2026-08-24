@@ -139,87 +139,111 @@ TEXT ·HashF(SB), $688-56
 	ANDQ $0x000003c0, R10
 
 skip_compute:
-	// Two chunks or fewer do not need all eight lanes
-	CMPQ R9, $0x02
+	// Four chunks or fewer do not need all eight lanes
+	CMPQ R9, $0x04
 	JAE  eight_lane
 
+	// A batch covers two chunks, so the last one holds the partial chunk
+	MOVQ R9, R12
+	SHRQ $0x01, R12
+	XORQ DI, DI
+	MOVQ R9, R15
+	SHRQ $0x01, R15
+
+mix_batch:
+	// This batch starts at chunk 2*batch
+	MOVQ DI, R13
+	SHLQ $0x0b, R13
+	MOVQ input+0(FP), AX
+	ADDQ AX, R13
+	MOVQ DI, R14
+	SHLQ $0x03, R14
+	MOVQ out+40(FP), AX
+	ADDQ AX, R14
+
 	// Build row 3 for the first, middle, and last block of a chunk
-	LEAQ    (DX), CX
-	MOVL    CX, (R11)
-	SHRQ    $0x20, CX
-	MOVL    CX, 4(R11)
+	MOVQ    DI, CX
+	SHLQ    $0x01, CX
+	ADDQ    DX, CX
+	LEAQ    (CX), AX
+	MOVL    AX, (R11)
+	SHRQ    $0x20, AX
+	MOVL    AX, 4(R11)
 	MOVL    $0x00000040, 8(R11)
-	LEAQ    1(DX), CX
-	MOVL    CX, 16(R11)
-	SHRQ    $0x20, CX
-	MOVL    CX, 20(R11)
+	LEAQ    1(CX), AX
+	MOVL    AX, 16(R11)
+	SHRQ    $0x20, AX
+	MOVL    AX, 20(R11)
 	MOVL    $0x00000040, 24(R11)
 	VMOVDQU (R11), Y0
 	VMOVDQU Y0, 32(R11)
 	VMOVDQU Y0, 64(R11)
-	MOVL    BX, CX
-	ORL     $0x01, CX
-	MOVL    CX, 12(R11)
-	MOVL    CX, 28(R11)
+	MOVL    BX, AX
+	ORL     $0x01, AX
+	MOVL    AX, 12(R11)
+	MOVL    AX, 28(R11)
 	MOVL    BX, 44(R11)
 	MOVL    BX, 60(R11)
-	MOVL    BX, CX
-	ORL     $0x02, CX
-	MOVL    CX, 76(R11)
-	MOVL    CX, 92(R11)
+	MOVL    BX, AX
+	ORL     $0x02, AX
+	MOVL    AX, 76(R11)
+	MOVL    AX, 92(R11)
 
 	// Load the rotate tables and the key
 	VMOVDQU        rot16_shuf<>+0(SB), Y13
 	VMOVDQU        rot8_shuf<>+0(SB), Y14
 	VBROADCASTI128 (SI), Y0
 	VBROADCASTI128 16(SI), Y1
-	XORQ           CX, CX
-	LEAQ           (R11), DX
+	XORQ           AX, AX
+	LEAQ           (R11), CX
 
 mix_loop:
 	// Include end flags if last block
-	CMPQ CX, $0x000003c0
+	CMPQ AX, $0x000003c0
 	JNE  mix_flags_done
-	LEAQ 64(R11), DX
+	LEAQ 64(R11), CX
 
 mix_flags_done:
 	// Load and group the message words of both chunks
-	VMOVDQU     (AX)(CX*1), X4
-	VINSERTI128 $0x01, 1024(AX)(CX*1), Y4, Y4
-	VMOVDQU     16(AX)(CX*1), X5
-	VINSERTI128 $0x01, 1040(AX)(CX*1), Y5, Y5
-	VMOVDQU     32(AX)(CX*1), X6
-	VINSERTI128 $0x01, 1056(AX)(CX*1), Y6, Y6
-	VMOVDQU     48(AX)(CX*1), X7
-	VINSERTI128 $0x01, 1072(AX)(CX*1), Y7, Y7
+	VMOVDQU     (R13)(AX*1), X4
+	VINSERTI128 $0x01, 1024(R13)(AX*1), Y4, Y4
+	VMOVDQU     16(R13)(AX*1), X5
+	VINSERTI128 $0x01, 1040(R13)(AX*1), Y5, Y5
+	VMOVDQU     32(R13)(AX*1), X6
+	VINSERTI128 $0x01, 1056(R13)(AX*1), Y6, Y6
+	VMOVDQU     48(R13)(AX*1), X7
+	VINSERTI128 $0x01, 1072(R13)(AX*1), Y7, Y7
 
 	// Build rows 2 and 3 from the IV, counters, and flags
 	VBROADCASTI128 iv<>+0(SB), Y2
-	VMOVDQU        (DX), Y3
+	VMOVDQU        (CX), Y3
 
 	// Save the chaining value before the partial chunk boundary
-	CMPQ    CX, R10
+	CMPQ    DI, R15
+	JNE     mix_chain_done
+	CMPQ    AX, R10
 	JNE     mix_chain_done
 	VMOVDQU Y0, 96(R11)
 	VMOVDQU Y1, 128(R11)
-	MOVQ    R9, DX
-	SHLQ    $0x04, DX
-	MOVL    96(R11)(DX*1), BX
-	MOVL    BX, (R8)
-	MOVL    128(R11)(DX*1), BX
-	MOVL    BX, 16(R8)
-	MOVL    100(R11)(DX*1), BX
-	MOVL    BX, 4(R8)
-	MOVL    132(R11)(DX*1), BX
-	MOVL    BX, 20(R8)
-	MOVL    104(R11)(DX*1), BX
-	MOVL    BX, 8(R8)
-	MOVL    136(R11)(DX*1), BX
-	MOVL    BX, 24(R8)
-	MOVL    108(R11)(DX*1), BX
-	MOVL    BX, 12(R8)
-	MOVL    140(R11)(DX*1), BX
-	MOVL    BX, 28(R8)
+	MOVQ    R9, CX
+	ANDQ    $0x01, CX
+	SHLQ    $0x04, CX
+	MOVL    96(R11)(CX*1), BP
+	MOVL    BP, (R8)
+	MOVL    128(R11)(CX*1), BP
+	MOVL    BP, 16(R8)
+	MOVL    100(R11)(CX*1), BP
+	MOVL    BP, 4(R8)
+	MOVL    132(R11)(CX*1), BP
+	MOVL    BP, 20(R8)
+	MOVL    104(R11)(CX*1), BP
+	MOVL    BP, 8(R8)
+	MOVL    136(R11)(CX*1), BP
+	MOVL    BP, 24(R8)
+	MOVL    108(R11)(CX*1), BP
+	MOVL    BP, 12(R8)
+	MOVL    140(R11)(CX*1), BP
+	MOVL    BP, 28(R8)
 
 mix_chain_done:
 	// Round 1
@@ -609,15 +633,15 @@ mix_chain_done:
 	// If we have zero complete chunks, we're done
 	CMPQ R9, $0x00
 	JNE  mix_loop_trailer
-	CMPQ R10, CX
+	CMPQ R10, AX
 	JEQ  mix_finalize
 
 mix_loop_trailer:
 	// Increment, use the middle-block flags, and loop
-	CMPQ CX, $0x000003c0
+	CMPQ AX, $0x000003c0
 	JEQ  mix_finalize
-	ADDQ $0x40, CX
-	LEAQ 32(R11), DX
+	ADDQ $0x40, AX
+	LEAQ 32(R11), CX
 	JMP  mix_loop
 
 mix_finalize:
@@ -625,17 +649,25 @@ mix_finalize:
 	VEXTRACTI128 $0x01, Y0, X12
 	VPUNPCKLDQ   X12, X0, X4
 	VPUNPCKHDQ   X12, X0, X5
-	VMOVQ        X4, (DI)
-	VPEXTRQ      $0x01, X4, 32(DI)
-	VMOVQ        X5, 64(DI)
-	VPEXTRQ      $0x01, X5, 96(DI)
+	VMOVQ        X4, (R14)
+	VPEXTRQ      $0x01, X4, 32(R14)
+	VMOVQ        X5, 64(R14)
+	VPEXTRQ      $0x01, X5, 96(R14)
 	VEXTRACTI128 $0x01, Y1, X12
 	VPUNPCKLDQ   X12, X1, X4
 	VPUNPCKHDQ   X12, X1, X5
-	VMOVQ        X4, 128(DI)
-	VPEXTRQ      $0x01, X4, 160(DI)
-	VMOVQ        X5, 192(DI)
-	VPEXTRQ      $0x01, X5, 224(DI)
+	VMOVQ        X4, 128(R14)
+	VPEXTRQ      $0x01, X4, 160(R14)
+	VMOVQ        X5, 192(R14)
+	VPEXTRQ      $0x01, X5, 224(R14)
+
+	// Advance to the next batch of two chunks
+	CMPQ DI, R12
+	JEQ  mix_done
+	ADDQ $0x01, DI
+	JMP  mix_batch
+
+mix_done:
 	VZEROUPPER
 	RET
 
