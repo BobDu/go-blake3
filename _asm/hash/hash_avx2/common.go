@@ -194,15 +194,26 @@ func addms(alloc *Alloc, mps []Mem, as []*Value) {
 	}
 }
 
+// Like xorb, these commute, so a spilled operand goes in the memory operand
+// instead of being reloaded into a register first. Unlike xorb they keep a
+// alive, so only the case where b alone is spilled can be folded.
 func add(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
-	VPADDD(a.Get(), b.Consume(), o.Get())
+	if !b.HasReg() && a.HasReg() {
+		VPADDD(b.ConsumeOp(), a.Get(), o.Get())
+	} else {
+		VPADDD(a.GetOp(), b.Consume(), o.Get())
+	}
 	return o
 }
 
 func xor(alloc *Alloc, a, b *Value) *Value {
 	o := alloc.Value()
-	VPXOR(a.Get(), b.Consume(), o.Get())
+	if !b.HasReg() && a.HasReg() {
+		VPXOR(b.ConsumeOp(), a.Get(), o.Get())
+	} else {
+		VPXOR(a.GetOp(), b.Consume(), o.Get())
+	}
 	return o
 }
 
